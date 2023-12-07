@@ -13,6 +13,8 @@ from .generalised_neural_network_model import GeneralisedNeuralNetworkModel
 from .auxiliary_functions import get_default_device, get_optimizer, to_device, DeviceDataLoader
 # from data.airline_passenger_satisfaction_train import read_data, data_preprocessing, AirlinePassengersDataset, ToTensor
 import pandas as pd
+import plac
+import mlflow
 
     
 def train_gnn_model(model: GeneralisedNeuralNetworkModel, optim: torch.optim.Adam, train_dl: DataLoader) -> float:
@@ -71,7 +73,11 @@ def train_nn_airline(train_df: pd.DataFrame, embedded_cols: dict, epochs: int=8,
     for i in range(epochs):
         loss = train_gnn_model(model, optim, train_dl)
         print("training loss: %.3f" % loss)
-        validate_gnn_loss(model, valid_dl)
+        val_loss, acc = validate_gnn_loss(model, valid_dl)
+
+        mlflow.log_metric("train_loss", loss, step=i)
+        mlflow.log_metric("validation_loss", val_loss, step=i)
+        mlflow.log_metric("Accuracy", acc, step=i)
 
     return model
 
@@ -93,13 +99,28 @@ def test_nn_airline(model: GeneralisedNeuralNetworkModel, test_df: pd.DataFrame,
     return final_probs
 
 
-def main():
-    train_df, test_df, embedded_cols = preprocess_airline_data()
-    model = train_nn_airline(train_df, embedded_cols)
-    final_probs = test_nn_airline(model, test_df, embedded_cols)
-    # print(final_probs)
+
+@plac.opt('dataset', 'Dataset to use for NN model evaluation', str, 'd')
+@plac.opt('batch_size', 'Batch size of the data', int, 'b')
+@plac.opt('epochs', 'Epochs number of training', int, 'e')
+@plac.opt('lr', 'Learning rate of optimizer', float, 'l')
+def main(dataset: str, batch_size: int, epochs: int, lr: float):
+    if dataset == 'airline_passenger_satisfaction':
+        with mlflow.start_run():
+            train_df, test_df, embedded_cols = preprocess_airline_data()
+            model = train_nn_airline(train_df, embedded_cols, epochs=epochs, batch_size=batch_size, lr=lr)
+            final_probs = test_nn_airline(model, test_df, embedded_cols, batch_size=batch_size)
+
+            mlflow.set_tracking_uri("http://127.0.0.1:5000")
+            mlflow.log_param('dataset', dataset)
+            mlflow.log_param('batch_size', batch_size)
+            mlflow.log_param('epochs', epochs)
+            mlflow.log_param('learning_rate', lr)
+
+            mlflow.pytorch.log_model(model, 'model')
 
 
 if __name__ == '__main__':
-    main()
+    # main()
+    plac.call(main)
 
