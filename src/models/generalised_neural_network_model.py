@@ -19,10 +19,13 @@ class GeneralisedNeuralNetworkModel(nn.Module):
 
     def forward(self, x_cat, x_cont):
         x = [e(x_cat[:, i]) for i, e in enumerate(self.embeddings)]
-        x = torch.cat(x, 1)
-        x = self.emb_drop(x)
-        x2 = self.bn1(x_cont)
-        x = torch.cat([x, x2], 1)
+        if len(x) != 0:
+            x = torch.cat(x, 1)
+            x = self.emb_drop(x)
+            x2 = self.bn1(x_cont)
+            x = torch.cat([x, x2], 1)
+        else:
+            x = self.bn1(x_cont.float())
         x = F.relu(self.lin1(x))
         x = self.drops(x)
         x = self.bn2(x)
