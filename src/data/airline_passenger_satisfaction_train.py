@@ -47,6 +47,7 @@ class AirlinePassengersDataset(Dataset):
         Args:
             X: input data
             y: labels
+            embedded_col_names: list of categorical column names
             transform (callable, optional): Optional transform to be applied on a sample
         """
         X = X.copy()
