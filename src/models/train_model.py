@@ -18,56 +18,66 @@ import pandas as pd
 import numpy as np
 import plac
 import mlflow
+from tqdm import tqdm
 
 
 
-def train_gnn_model(model: GeneralisedNeuralNetworkModel, optim: torch.optim.Adam, train_dl: DataLoader) -> float:
+def train_gnn_model(model: GeneralisedNeuralNetworkModel, optim: torch.optim.Adam, train_dl: DataLoader, epoch: int) -> float:
     model.train()
     total = 0
     sum_loss = 0
-    for x1, x2, y in train_dl:
-        batch = y.shape[0]
-        output = model(x1, x2)
-        loss = F.binary_cross_entropy(output, y)
-        optim.zero_grad()
-        loss.backward()
-        optim.step()
-        total += batch
-        sum_loss += batch * (loss.item())
+    print("Training:")
+    with tqdm(train_dl, unit="batch") as tepoch:
+        for x1, x2, y in tepoch:
+            tepoch.set_description(f"Epoch {epoch}")
+            batch = y.shape[0]
+            output = model(x1, x2)
+            
+            loss = F.binary_cross_entropy_with_logits(output, y)
+            optim.zero_grad()
+            loss.backward()
+            optim.step()
+            total += batch
+            sum_loss += batch * (loss.item())
+
+            tepoch.set_postfix(loss=sum_loss/total)
 
 
     return sum_loss / total
 
-def validate_gnn_loss(model: GeneralisedNeuralNetworkModel, valid_dl: DataLoader) -> tuple[float, float, list, list]:
+def validate_gnn_loss(model: GeneralisedNeuralNetworkModel, valid_dl: DataLoader, epoch: int) -> tuple[float, float, list, list]:
     model.eval()
     total = 0
     sum_loss = 0
     correct = 0
     all_preds, all_labels = [], []
-    for x1, x2, y in valid_dl:
-        current_batch_size = y.shape[0]
-        out = model(x1, x2)
+    print("Validation:")
+    with tqdm(valid_dl, unit="batch") as tepoch:
+        for x1, x2, y in tepoch:
+            tepoch.set_description(f"Epoch {epoch}")
+            current_batch_size = y.shape[0]
+            out = model(x1, x2)
+            
+            all_preds.extend(F.sigmoid(out).round().cpu().detach().numpy().astype(int).tolist())
+            all_labels.extend(y.cpu().detach().numpy().astype(int).tolist())
 
-        all_preds.extend(out.round().cpu().detach().numpy().astype(int).tolist())
-        all_labels.extend(y.cpu().detach().numpy().astype(int).tolist())
+            loss = F.binary_cross_entropy_with_logits(out, y)
+            sum_loss += current_batch_size * (loss.item())
+            total += current_batch_size
+            correct += (F.sigmoid(out).round() == y).float().sum()
 
-        loss = F.binary_cross_entropy(out, y)
-        sum_loss += current_batch_size * (loss.item())
-        total += current_batch_size
-        correct += (out.round() == y).float().sum()
-    
+            tepoch.set_postfix(loss=sum_loss/total, accuracy=(correct/total).cpu().item())
+
     all_labels = np.squeeze(np.array(all_labels).astype(int)).tolist()
     all_preds = np.squeeze(np.array(all_preds).astype(int))
-    print("valid loss %.3f and accuracy %.3f " % (sum_loss / total, correct / total))
     return sum_loss / total, correct / total, all_preds, all_labels
 
 
 def training_gnn_loop(epochs: int, model: GeneralisedNeuralNetworkModel, optimizer: torch.optim.Adam,
                        train_dl: DeviceDataLoader, valid_dl: DeviceDataLoader) -> GeneralisedNeuralNetworkModel:
     for i in range(epochs):
-        loss = train_gnn_model(model, optimizer, train_dl)
-        print("training loss: %.3f" % loss)
-        val_loss, acc, all_preds, all_labels = validate_gnn_loss(model, valid_dl)
+        loss = train_gnn_model(model, optimizer, train_dl, i)
+        val_loss, acc, all_preds, all_labels = validate_gnn_loss(model, valid_dl, i)
 
         auc = roc_auc_score(all_labels, all_preds)
         mlflow.log_metric("train_loss", loss, step=i)
@@ -166,11 +176,11 @@ def test_nn_credit_card(model: GeneralisedNeuralNetworkModel, X: pd.DataFrame, y
             current_batch_size = y.shape[0]
             out = model(x1, x2)
 
-            all_preds.extend(out.round().cpu().detach().numpy().astype(int).tolist())
+            all_preds.extend(F.sigmoid(out).round().cpu().detach().numpy().astype(int).tolist())
             all_labels.extend(y.cpu().detach().numpy().astype(int).tolist())
 
             total += current_batch_size
-            correct += (out.round() == y).float().sum()
+            correct += (F.sigmoid(out).round() == y).float().sum()
     
 
     all_labels = np.squeeze(np.array(all_labels).astype(int)).tolist()

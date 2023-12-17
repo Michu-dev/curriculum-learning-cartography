@@ -32,5 +32,5 @@ class GeneralisedNeuralNetworkModel(nn.Module):
         x = F.relu(self.lin2(x))
         x = self.drops(x)
         x = self.bn3(x)
-        x = F.sigmoid(self.lin3(x))
+        x = self.lin3(x)
         return x

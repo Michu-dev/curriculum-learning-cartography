@@ -20,9 +20,8 @@ def preprocess_credit_card_ds() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFram
     ds_path = os.environ.get('PATH_TO_CREDIT_CARD')
     credit_card_df = read_data(ds_path)
     proportions_list = (credit_card_df['Class'].value_counts()).tolist()
-    print(proportions_list)
     proportions_list = [1.0 / p for p in proportions_list]
-    print(proportions_list)
+    
     scaler = StandardScaler()
     X_train, X_test, y_train, y_test = train_test_split(credit_card_df.drop(columns=['Time', 'Class']),
                                                         credit_card_df.loc[:, ['Class']], test_size=0.2, random_state=42)
