@@ -23,8 +23,9 @@ def preprocess_credit_card_ds() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFram
     proportions_list = [1.0 / p for p in proportions_list]
     
     scaler = StandardScaler()
-    X_train, X_test, y_train, y_test = train_test_split(credit_card_df.drop(columns=['Time', 'Class']),
-                                                        credit_card_df.loc[:, ['Class']], test_size=0.2, random_state=42)
+    X = credit_card_df.drop(columns=['Time', 'Class'])
+    y = credit_card_df.loc[:, ['Class']]
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
     X_train = scaler.fit_transform(X_train)
     X_test = scaler.transform(X_test)
     return X_train, X_test, y_train, y_test, proportions_list

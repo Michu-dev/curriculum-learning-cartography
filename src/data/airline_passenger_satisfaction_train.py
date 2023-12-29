@@ -29,6 +29,7 @@ def preprocess_airline_data() -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     train_path, test_path = os.environ.get('PATH_TO_AIRLINE_TRAIN'), os.environ.get('PATH_TO_AIRLINE_TEST')
     train_df, test_df = read_data(train_path), read_data(test_path)
     train_df, test_df = data_preprocessing(train_df), data_preprocessing(test_df)
+    # TODO: try to join train and test df to preprocess embedded_cols 
     numerical_cols = ['Age', 'Flight_Distance', 'Departure_Delay_in_Minutes', 'Arrival_Delay_in_Minutes']
     for col in train_df.columns:
         if not col in numerical_cols:

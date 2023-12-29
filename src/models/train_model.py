@@ -1,5 +1,6 @@
 from ..data.airline_passenger_satisfaction_train import preprocess_airline_data, AirlinePassengersDataset
 from ..data.credit_card_fraud import preprocess_credit_card_ds, CreditCardDataset
+from ..data.spotify_tracks_genre import preprocess_spotify_tracks_ds, SpotifyTracksDataset
 import torch
 import torch.nn as nn
 import torchvision
@@ -22,18 +23,24 @@ from tqdm import tqdm
 
 
 
-def train_gnn_model(model: GeneralisedNeuralNetworkModel, optim: torch.optim.Adam, train_dl: DataLoader, epoch: int) -> float:
+def train_gnn_model(model: GeneralisedNeuralNetworkModel, optim: torch.optim.Adam, train_dl: DataLoader, epoch: int, bin: bool=True) -> float:
     model.train()
     total = 0
     sum_loss = 0
     print("Training:")
+    loss_fn = nn.BCEWithLogitsLoss() if bin else nn.CrossEntropyLoss()
     with tqdm(train_dl, unit="batch") as tepoch:
         for x1, x2, y in tepoch:
+            if not bin:
+                y = y.squeeze(dim=1)
             tepoch.set_description(f"Epoch {epoch}")
             batch = y.shape[0]
             output = model(x1, x2)
+            # print(output.shape)
+            # print('--------------------')
+            # print(y.shape)
             
-            loss = F.binary_cross_entropy_with_logits(output, y)
+            loss = loss_fn(output, y)
             optim.zero_grad()
             loss.backward()
             optim.step()
@@ -45,26 +52,33 @@ def train_gnn_model(model: GeneralisedNeuralNetworkModel, optim: torch.optim.Ada
 
     return sum_loss / total
 
-def validate_gnn_loss(model: GeneralisedNeuralNetworkModel, valid_dl: DataLoader, epoch: int) -> tuple[float, float, list, list]:
+def validate_gnn_loss(model: GeneralisedNeuralNetworkModel, valid_dl: DataLoader, epoch: int, bin: bool=True) -> tuple[float, float, list, list]:
     model.eval()
     total = 0
     sum_loss = 0
     correct = 0
     all_preds, all_labels = [], []
     print("Validation:")
+    loss_fn = nn.BCEWithLogitsLoss() if bin else nn.CrossEntropyLoss()
     with tqdm(valid_dl, unit="batch") as tepoch:
         for x1, x2, y in tepoch:
+            if not bin:
+                y = y.squeeze(dim=1)
             tepoch.set_description(f"Epoch {epoch}")
             current_batch_size = y.shape[0]
             out = model(x1, x2)
             
-            all_preds.extend(F.sigmoid(out).round().cpu().detach().numpy().astype(int).tolist())
+            preds = F.sigmoid(out).round() if bin else F.log_softmax(out, dim=1)
+            if not bin:
+                _, preds = torch.max(preds, dim=1)
+
+            all_preds.extend(preds.cpu().detach().numpy().astype(int).tolist())
             all_labels.extend(y.cpu().detach().numpy().astype(int).tolist())
 
-            loss = F.binary_cross_entropy_with_logits(out, y)
+            loss = loss_fn(out, y)
             sum_loss += current_batch_size * (loss.item())
             total += current_batch_size
-            correct += (F.sigmoid(out).round() == y).float().sum()
+            correct += (preds == y).float().sum()
 
             tepoch.set_postfix(loss=sum_loss/total, accuracy=(correct/total).cpu().item())
 
@@ -74,16 +88,18 @@ def validate_gnn_loss(model: GeneralisedNeuralNetworkModel, valid_dl: DataLoader
 
 
 def training_gnn_loop(epochs: int, model: GeneralisedNeuralNetworkModel, optimizer: torch.optim.Adam,
-                       train_dl: DeviceDataLoader, valid_dl: DeviceDataLoader) -> GeneralisedNeuralNetworkModel:
+                       train_dl: DeviceDataLoader, valid_dl: DeviceDataLoader, bin: bool=True) -> GeneralisedNeuralNetworkModel:
     for i in range(epochs):
-        loss = train_gnn_model(model, optimizer, train_dl, i)
-        val_loss, acc, all_preds, all_labels = validate_gnn_loss(model, valid_dl, i)
+        loss = train_gnn_model(model, optimizer, train_dl, i, bin=bin)
+        val_loss, acc, all_preds, all_labels = validate_gnn_loss(model, valid_dl, i, bin=bin)
 
-        auc = roc_auc_score(all_labels, all_preds)
         mlflow.log_metric("train_loss", loss, step=i)
         mlflow.log_metric("validation_loss", val_loss, step=i)
         mlflow.log_metric("Accuracy", acc, step=i)
-        mlflow.log_metric("roc_auc", auc, step=i)
+        
+        if bin:
+            auc = roc_auc_score(all_labels, all_preds)
+            mlflow.log_metric("roc_auc", auc, step=i)
 
     return model
 
@@ -122,20 +138,94 @@ def test_nn_airline(model: GeneralisedNeuralNetworkModel, test_df: pd.DataFrame,
     test_dl = DeviceDataLoader(test_dl, device)
 
     preds = []
+    total, correct = 0, 0
     with torch.no_grad():
         for x1, x2, y in test_dl:
+            current_batch_size = y.shape[0]
             out = model(x1, x2)
             preds.append(out)
+
+            total += current_batch_size
+            correct += (F.sigmoid(out).round() == y).float().sum()
+
+    mlflow.log_metric("test_acc", (correct / total))
     
     final_probs = [item for sublist in preds for item in sublist]
     return final_probs    
 
+def train_nn_spotify_tracks(X: pd.DataFrame, y: pd.DataFrame, embedded_cols: dict,
+                           epochs: int=8, batch_size: int=1000, lr: float=0.01, wd: float=0.0) -> GeneralisedNeuralNetworkModel:
+    embedded_col_names = embedded_cols.keys()
+    print(embedded_cols)
+    embedding_sizes = [(n_categories+1, min(50, (n_categories + 1) // 2)) for _, n_categories in embedded_cols.items()]
+
+    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.10, random_state=0)
+
+    train_ds = SpotifyTracksDataset(X_train, y_train, embedded_col_names)
+    valid_ds = SpotifyTracksDataset(X_val, y_val, embedded_col_names)
+
+    device = get_default_device()
+    n_cont = len(X.columns) - len(embedded_cols)
+    # n_class based on previous EDA
+    model = GeneralisedNeuralNetworkModel(embedding_sizes, n_cont, n_class=114)
+    to_device(model, device)
+
+    optim = get_optimizer(model, lr=lr, wd=wd)
+
+    train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
+    valid_dl = DataLoader(valid_ds, batch_size=batch_size, shuffle=True)
+    train_dl = DeviceDataLoader(train_dl, device)
+    valid_dl = DeviceDataLoader(valid_dl, device)
+
+    model = training_gnn_loop(epochs, model, optim, train_dl, valid_dl, bin=False)
+
+    return model
+
+def test_nn_spotify_tracks(model: GeneralisedNeuralNetworkModel, X: pd.DataFrame, y: pd.DataFrame,
+                           embedded_cols: dict, batch_size: int=1000):
+    embedded_col_names = embedded_cols.keys()
+    test_ds = SpotifyTracksDataset(X, y, embedded_col_names)
+
+    test_dl = DataLoader(test_ds, batch_size=batch_size)
+    device = get_default_device()
+    test_dl = DeviceDataLoader(test_dl, device)
+
+    all_preds, all_labels = [], []
+    total, correct = 0, 0
+    with torch.no_grad():
+        for x1, x2, y in test_dl:
+            current_batch_size = y.shape[0]
+            out = model(x1, x2)
+            y_pred_softmax = F.log_softmax(out, dim=1)
+            _, y_pred_tags = torch.max(y_pred_softmax, dim=1)
+
+            all_preds.extend(y_pred_tags.cpu().detach().numpy().astype(int).tolist())
+            all_labels.extend(y.cpu().detach().numpy().astype(int).tolist())
+
+            total += current_batch_size
+            correct += (y_pred_tags == y).float().sum()
+
+    all_labels = np.squeeze(np.array(all_labels).astype(int)).tolist()
+    all_preds = np.squeeze(np.array(all_preds).astype(int)).tolist()
+
+    # metrics for imbalanced data model
+    # precision = precision_score(all_labels, all_preds)
+    # recall = recall_score(all_labels, all_preds)
+    # f1score = f1_score(all_labels, all_preds)
+
+    # mlflow.log_metric("test_acc", (correct / total))
+    # mlflow.log_metric("precision", precision)
+    # mlflow.log_metric("recall", recall)
+    # mlflow.log_metric("f1_score", f1score)
+
+    print("test accuracy %.3f " % (correct / total))
+    return float(correct) / total
 
 
 def train_nn_credit_card(X: pd.DataFrame, y: pd.DataFrame, propotions: list, epochs: int=8,
-                          batch_size: int= 1000, lr: float=0.01, wd: float=0.0) -> GeneralisedNeuralNetworkModel:
+                          batch_size: int=1000, lr: float=0.01, wd: float=0.0) -> GeneralisedNeuralNetworkModel:
     
-    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.10, random_state=0)
+    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.10, stratify=y, random_state=0)
 
     train_ds = CreditCardDataset(X_train, y_train)
     valid_ds = CreditCardDataset(X_val, y_val)
@@ -217,6 +307,13 @@ def main(dataset: str='credit_card', batch_size: int=1000, epochs: int=8, lr: fl
                                             batch_size=batch_size, lr=lr)
             test_acc = test_nn_credit_card(model, X_test, y_test,
                                         batch_size=batch_size)
+        elif dataset == 'spotify_tracks':
+            X_rem, X_test, y_rem, y_test, embedded_cols = preprocess_spotify_tracks_ds()
+            model = train_nn_spotify_tracks(X_rem, y_rem, embedded_cols,
+                                            epochs=epochs, batch_size=batch_size,
+                                            lr=lr)
+            test_acc = test_nn_spotify_tracks(model, X_test, y_test, embedded_cols, batch_size=batch_size)
+        
             
         mlflow.log_param('dataset', dataset)
         mlflow.log_param('batch_size', batch_size)
