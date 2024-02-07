@@ -1,9 +1,15 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from .auxiliary_functions import get_default_device
 
 _lambda = 20
+
+
+def get_default_device():
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    else:
+        return torch.device("cpu")
 
 
 def relax_loss(loss: torch.Tensor, difficulty: np.ndarray, epoch: int):
@@ -35,11 +41,7 @@ class BCECustomLoss(nn.Module):
         super(BCECustomLoss, self).__init__()
 
     def forward(self, inputs, targets, difficulty, epoch):
-        device = None
-        if torch.cuda.is_available():
-            device = torch.device("cuda")
-        else:
-            device = torch.device("cpu")
+        device = get_default_device()
         loss = -1 * (
             targets * torch.log(inputs) + (1 - targets) * torch.log(1 - inputs)
         )

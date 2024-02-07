@@ -1,0 +1,5 @@
+outs:
+- md5: bce06389286124270180cc96bf116584
+  size: 16755863
+  hash: md5
+  path: star_classification.csv

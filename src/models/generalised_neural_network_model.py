@@ -2,10 +2,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 class GeneralisedNeuralNetworkModel(nn.Module):
     def __init__(self, embedding_sizes, n_cont, n_class=1):
         super().__init__()
-        self.embeddings = nn.ModuleList([nn.Embedding(categories, size) for categories, size in embedding_sizes])
+        self.embeddings = nn.ModuleList(
+            [nn.Embedding(categories, size) for categories, size in embedding_sizes]
+        )
         n_emb = sum(e.embedding_dim for e in self.embeddings)
         self.n_emb, self.n_cont = n_emb, n_cont
         self.lin1 = nn.Linear(self.n_emb + self.n_cont, 200)
