@@ -1,126 +1,212 @@
-from ..data.airline_passenger_satisfaction_train import preprocess_airline_data, AirlinePassengersDataset
+from ..data.airline_passenger_satisfaction_train import (
+    preprocess_airline_data,
+)
+from ..data.credit_card_fraud import preprocess_credit_card_ds
+from ..data.spotify_tracks_genre import (
+    preprocess_spotify_tracks_ds,
+)
+from ..data.stellar_ds import preprocess_stellar_ds
 import torch
-import torch.nn as nn
-import torchvision
-import torchvision.transforms as transforms
-from torch.utils.data import Dataset, DataLoader
-import matplotlib.pyplot as plt
-import os
-import torch.nn.functional as F
-from sklearn.model_selection import train_test_split
-from torch.utils.tensorboard import SummaryWriter
 from .generalised_neural_network_model import GeneralisedNeuralNetworkModel
-from .auxiliary_functions import get_default_device, get_optimizer, to_device, DeviceDataLoader
+from .training_functions import (
+    train_nn_airline,
+    test_nn_airline,
+    train_nn_credit_card,
+    test_nn_credit_card,
+    train_nn_spotify_tracks,
+    test_nn_spotify_tracks,
+    train_nn_stellar,
+    test_nn_stellar,
+)
+
 # from data.airline_passenger_satisfaction_train import read_data, data_preprocessing, AirlinePassengersDataset, ToTensor
 import pandas as pd
+import numpy as np
 import plac
 import mlflow
-
-    
-def train_gnn_model(model: GeneralisedNeuralNetworkModel, optim: torch.optim.Adam, train_dl: DataLoader) -> float:
-    model.train()
-    total = 0
-    sum_loss = 0
-    for x1, x2, y in train_dl:
-        batch = y.shape[0]
-        output = model(x1, x2)
-        loss = F.binary_cross_entropy(output, y)
-        optim.zero_grad()
-        loss.backward()
-        optim.step()
-        total += batch
-        sum_loss += batch * (loss.item())
+from skorch import NeuralNetClassifier
+from imblearn.over_sampling import SMOTE
 
 
-    return sum_loss / total
+@plac.opt("dataset", "Dataset to use for NN model evaluation", str, "d")
+@plac.opt("relaxed", "Relax loss function flag", bool, "r")
+@plac.opt("batch_size", "Batch size of the data", int, "b")
+@plac.opt("epochs", "Epochs number of training", int, "e")
+@plac.opt("lr", "Learning rate of optimizer", float, "l")
+def main(
+    dataset: str = "credit_card",
+    relaxed: bool = False,
+    batch_size: int = 1000,
+    epochs: int = 8,
+    lr: float = 0.01,
+):
+    with mlflow.start_run():
+        mlflow.set_tracking_uri("http://127.0.0.1:5000")
 
-def validate_gnn_loss(model: GeneralisedNeuralNetworkModel, valid_dl: DataLoader) -> tuple[float, float]:
-    model.eval()
-    total = 0
-    sum_loss = 0
-    correct = 0
-    for x1, x2, y in valid_dl:
-        current_batch_size = y.shape[0]
-        out = model(x1, x2)
-        loss = F.binary_cross_entropy(out, y)
-        sum_loss += current_batch_size * (loss.item())
-        total += current_batch_size
-        correct += (out.round() == y).float().sum()
-    print("valid loss %.3f and accuracy %.3f " % (sum_loss / total, correct / total))
-    return sum_loss / total, correct / total
-
-
-def train_nn_airline(train_df: pd.DataFrame, embedded_cols: dict, epochs: int=8, batch_size: int= 1000, lr: float=0.01, wd: float=0.0) -> GeneralisedNeuralNetworkModel:
-    embedded_col_names = embedded_cols.keys()
-    print(embedded_cols)
-    embedding_sizes = [(n_categories+1, min(50, (n_categories + 1) // 2)) for _, n_categories in embedded_cols.items()]
-    X, y = train_df.iloc[:, :-1], train_df.iloc[:, [-1]]
-    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.10, random_state=0)
-
-    train_ds = AirlinePassengersDataset(X_train, y_train, embedded_col_names)
-    valid_ds = AirlinePassengersDataset(X_val, y_val, embedded_col_names)
-
-    device = get_default_device()
-    model = GeneralisedNeuralNetworkModel(embedding_sizes, 7)
-    to_device(model, device)
-    optim = get_optimizer(model, lr=lr, wd=wd)
-
-    train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
-    valid_dl = DataLoader(valid_ds, batch_size=batch_size, shuffle=True)
-    train_dl = DeviceDataLoader(train_dl, device)
-    valid_dl = DeviceDataLoader(valid_dl, device)
-
-    for i in range(epochs):
-        loss = train_gnn_model(model, optim, train_dl)
-        print("training loss: %.3f" % loss)
-        val_loss, acc = validate_gnn_loss(model, valid_dl)
-
-        mlflow.log_metric("train_loss", loss, step=i)
-        mlflow.log_metric("validation_loss", val_loss, step=i)
-        mlflow.log_metric("Accuracy", acc, step=i)
-
-    return model
-
-def test_nn_airline(model: GeneralisedNeuralNetworkModel, test_df: pd.DataFrame, embedded_cols: dict, batch_size: int= 1000):
-    embedded_col_names = embedded_cols.keys()
-    X, y = test_df.iloc[:, :-1], test_df.iloc[:, [-1]]
-    test_ds = AirlinePassengersDataset(X, y, embedded_col_names)
-    test_dl = DataLoader(test_ds, batch_size=batch_size)
-    device = get_default_device()
-    test_dl = DeviceDataLoader(test_dl, device)
-
-    preds = []
-    with torch.no_grad():
-        for x1, x2, y in test_dl:
-            out = model(x1, x2)
-            preds.append(out)
-    
-    final_probs = [item for sublist in preds for item in sublist]
-    return final_probs
-
-
-
-@plac.opt('dataset', 'Dataset to use for NN model evaluation', str, 'd')
-@plac.opt('batch_size', 'Batch size of the data', int, 'b')
-@plac.opt('epochs', 'Epochs number of training', int, 'e')
-@plac.opt('lr', 'Learning rate of optimizer', float, 'l')
-def main(dataset: str, batch_size: int, epochs: int, lr: float):
-    if dataset == 'airline_passenger_satisfaction':
-        with mlflow.start_run():
+        if dataset == "airline_passenger_satisfaction":
             train_df, test_df, embedded_cols = preprocess_airline_data()
-            model = train_nn_airline(train_df, embedded_cols, epochs=epochs, batch_size=batch_size, lr=lr)
-            final_probs = test_nn_airline(model, test_df, embedded_cols, batch_size=batch_size)
+            full_df = pd.concat([train_df, test_df], axis=0)
+            embedded_col_names = embedded_cols.keys()
+            X, y = full_df.iloc[:, :-1], full_df.iloc[:, [-1]]
+            X1 = X.loc[:, embedded_col_names].copy().values.astype(np.int64)
+            X2 = X.drop(columns=embedded_col_names).copy().values.astype(np.float32)
+            y = y.copy().values.astype(np.float32)
 
-            mlflow.set_tracking_uri("http://127.0.0.1:5000")
-            mlflow.log_param('dataset', dataset)
-            mlflow.log_param('batch_size', batch_size)
-            mlflow.log_param('epochs', epochs)
-            mlflow.log_param('learning_rate', lr)
+            X = {
+                "x_cat": X1,
+                "x_cont": X2,
+            }
 
-            mlflow.pytorch.log_model(model, 'model')
+            embedding_sizes = [
+                (n_categories + 1, min(50, (n_categories + 1) // 2))
+                for _, n_categories in embedded_cols.items()
+            ]
+            skorch_model = NeuralNetClassifier(
+                GeneralisedNeuralNetworkModel(embedding_sizes, 7),
+                criterion=torch.nn.BCEWithLogitsLoss,
+                max_epochs=8,
+            )
+
+            if relaxed:
+                skorch_model.fit(X, y)
+
+            model = train_nn_airline(
+                train_df,
+                embedded_cols,
+                skorch_model,
+                relaxed=relaxed,
+                epochs=epochs,
+                batch_size=batch_size,
+                lr=lr,
+            )
+            final_probs = test_nn_airline(
+                model, test_df, embedded_cols, batch_size=batch_size
+            )
+        elif dataset == "credit_card":
+            X_rem, X_test, y_rem, y_test, prop = preprocess_credit_card_ds()
+            # Apply SMOTE oversampling to the training data
+            smote = SMOTE(random_state=42)
+            X_sampled, y_sampled = smote.fit_resample(X_rem, y_rem)
+
+            X = X_sampled.copy().astype(np.float32)
+            y = y_sampled.copy().values.astype(np.float32)
+
+            X = {
+                "x_cat": np.zeros(X.shape[0], dtype=np.float32),
+                "x_cont": X,
+            }
+
+            skorch_model = NeuralNetClassifier(
+                GeneralisedNeuralNetworkModel([], len(X_rem[0])),
+                criterion=torch.nn.BCEWithLogitsLoss,
+                max_epochs=8,
+            )
+
+            if relaxed:
+                skorch_model.fit(X, y)
+
+            model = train_nn_credit_card(
+                X_rem,
+                y_rem,
+                prop,
+                skorch_model,
+                relaxed=relaxed,
+                epochs=epochs,
+                batch_size=batch_size,
+                lr=lr,
+            )
+            test_acc = test_nn_credit_card(model, X_test, y_test, batch_size=batch_size)
+        elif dataset == "spotify_tracks":
+            X_rem, X_test, y_rem, y_test, embedded_cols = preprocess_spotify_tracks_ds()
+            embedded_col_names = embedded_cols.keys()
+
+            X1 = X_rem.loc[:, embedded_col_names].copy().values.astype(np.int64)
+            X2 = X_rem.drop(columns=embedded_col_names).copy().values.astype(np.float32)
+            y = y_rem.copy().values.astype(np.int64).squeeze()
+
+            X = {
+                "x_cat": X1,
+                "x_cont": X2,
+            }
+            n_cont = len(X_rem.columns) - len(embedded_cols)
+
+            embedding_sizes = [
+                (n_categories + 1, min(50, (n_categories + 1) // 2))
+                for _, n_categories in embedded_cols.items()
+            ]
+            skorch_model = NeuralNetClassifier(
+                GeneralisedNeuralNetworkModel(embedding_sizes, n_cont, n_class=114),
+                criterion=torch.nn.CrossEntropyLoss,
+                max_epochs=8,
+            )
+
+            if relaxed:
+                skorch_model.fit(X, y)
+
+            model = train_nn_spotify_tracks(
+                X_rem,
+                y_rem,
+                embedded_cols,
+                skorch_model,
+                relaxed=relaxed,
+                epochs=epochs,
+                batch_size=batch_size,
+                lr=lr,
+            )
+            test_acc = test_nn_spotify_tracks(
+                model, X_test, y_test, embedded_cols, batch_size=batch_size
+            )
+        elif dataset == "stellar":
+            X_rem, X_test, y_rem, y_test, embedded_cols = preprocess_stellar_ds()
+            embedded_col_names = embedded_cols.keys()
+
+            X1 = X_rem.loc[:, embedded_col_names].copy().values.astype(np.int64)
+            X2 = X_rem.drop(columns=embedded_col_names).copy().values.astype(np.float32)
+            y = y_rem.copy().values.astype(np.int64).squeeze()
+            X = {
+                "x_cat": X1,
+                "x_cont": X2,
+            }
+            n_cont = len(X_rem.columns) - len(embedded_cols)
+            embedding_sizes = [
+                (n_categories + 1, min(50, (n_categories + 1) // 2))
+                for _, n_categories in embedded_cols.items()
+            ]
+
+            skorch_model = NeuralNetClassifier(
+                GeneralisedNeuralNetworkModel(embedding_sizes, n_cont, n_class=3),
+                criterion=torch.nn.CrossEntropyLoss,
+                max_epochs=8,
+            )
+
+            if relaxed:
+                skorch_model.fit(X, y)
+
+            model = train_nn_stellar(
+                X_rem,
+                y_rem,
+                embedded_cols,
+                skorch_model,
+                relaxed=relaxed,
+                epochs=epochs,
+                batch_size=batch_size,
+                lr=lr,
+            )
+
+            test_acc = test_nn_stellar(
+                model, X_test, y_test, embedded_cols, batch_size=batch_size
+            )
+
+        mlflow.log_param("dataset", dataset)
+        mlflow.log_param("batch_size", batch_size)
+        mlflow.log_param("epochs", epochs)
+        mlflow.log_param("learning_rate", lr)
+        mlflow.log_param("relaxed", relaxed)
+
+        mlflow.set_tag("Purpose", "Initial comparison")
+        mlflow.pytorch.log_model(model, "model")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # main()
     plac.call(main)
-
