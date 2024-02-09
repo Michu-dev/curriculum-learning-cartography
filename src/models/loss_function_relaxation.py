@@ -27,13 +27,14 @@ def relax_loss(loss: torch.Tensor, difficulty: np.ndarray, epoch: int):
     #         requires_grad=True,
     #     ).to(device)[:5]
     # )
+    loss = loss.squeeze()
+    difficulty = difficulty.squeeze()
 
-    return torch.mean(
-        torch.tensor(
-            loss.cpu().detach().numpy() * (1 / _lambda ** (difficulty / epoch)),
-            requires_grad=True,
-        ).to(device)
+    loss = torch.mean(
+        loss * torch.tensor(1 / _lambda ** (difficulty / epoch)).to(device)
     )
+
+    return loss
 
 
 class BCECustomLoss(nn.Module):

@@ -5,6 +5,7 @@ from ..data.credit_card_fraud import preprocess_credit_card_ds
 from ..data.spotify_tracks_genre import (
     preprocess_spotify_tracks_ds,
 )
+from ..data.stellar_ds import preprocess_stellar_ds
 import torch
 from .generalised_neural_network_model import GeneralisedNeuralNetworkModel
 from .training_functions import (
@@ -14,6 +15,8 @@ from .training_functions import (
     test_nn_credit_card,
     train_nn_spotify_tracks,
     test_nn_spotify_tracks,
+    train_nn_stellar,
+    test_nn_stellar,
 )
 
 # from data.airline_passenger_satisfaction_train import read_data, data_preprocessing, AirlinePassengersDataset, ToTensor
@@ -54,7 +57,6 @@ def main(
                 "x_cont": X2,
             }
 
-            num_crossval_folds = 4
             embedding_sizes = [
                 (n_categories + 1, min(50, (n_categories + 1) // 2))
                 for _, n_categories in embedded_cols.items()
@@ -65,22 +67,8 @@ def main(
                 max_epochs=8,
             )
 
-            # print(X1[:100])
-            # print(X2[:100])
-            # print(y[:100])
-            # print(len(y))
-            # pred_probs = cross_val_score(
-            #     skorch_model, X, y, cv=num_crossval_folds, method="predict_proba"
-            # )
-
             if relaxed:
                 skorch_model.fit(X, y)
-            # pred_probs = skorch_model.predict_proba(X)
-
-            # label_quality = get_self_confidence_for_each_label(
-            #     y.astype(np.int32), pred_probs
-            # )
-            # print(label_quality)
 
             model = train_nn_airline(
                 train_df,
@@ -168,12 +156,54 @@ def main(
             test_acc = test_nn_spotify_tracks(
                 model, X_test, y_test, embedded_cols, batch_size=batch_size
             )
+        elif dataset == "stellar":
+            X_rem, X_test, y_rem, y_test, embedded_cols = preprocess_stellar_ds()
+            embedded_col_names = embedded_cols.keys()
+
+            X1 = X_rem.loc[:, embedded_col_names].copy().values.astype(np.int64)
+            X2 = X_rem.drop(columns=embedded_col_names).copy().values.astype(np.float32)
+            y = y_rem.copy().values.astype(np.int64).squeeze()
+            X = {
+                "x_cat": X1,
+                "x_cont": X2,
+            }
+            n_cont = len(X_rem.columns) - len(embedded_cols)
+            embedding_sizes = [
+                (n_categories + 1, min(50, (n_categories + 1) // 2))
+                for _, n_categories in embedded_cols.items()
+            ]
+
+            skorch_model = NeuralNetClassifier(
+                GeneralisedNeuralNetworkModel(embedding_sizes, n_cont, n_class=3),
+                criterion=torch.nn.CrossEntropyLoss,
+                max_epochs=8,
+            )
+
+            if relaxed:
+                skorch_model.fit(X, y)
+
+            model = train_nn_stellar(
+                X_rem,
+                y_rem,
+                embedded_cols,
+                skorch_model,
+                relaxed=relaxed,
+                epochs=epochs,
+                batch_size=batch_size,
+                lr=lr,
+            )
+
+            test_acc = test_nn_stellar(
+                model, X_test, y_test, embedded_cols, batch_size=batch_size
+            )
 
         mlflow.log_param("dataset", dataset)
         mlflow.log_param("batch_size", batch_size)
         mlflow.log_param("epochs", epochs)
         mlflow.log_param("learning_rate", lr)
+        mlflow.log_param("relaxed", relaxed)
 
+        mlflow.set_tag("Purpose", "Initial comparison")
         mlflow.pytorch.log_model(model, "model")
 
 

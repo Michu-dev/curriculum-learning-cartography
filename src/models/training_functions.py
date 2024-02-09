@@ -1,6 +1,7 @@
 from ..data.airline_passenger_satisfaction_train import AirlinePassengersDataset
 from ..data.credit_card_fraud import CreditCardDataset
 from ..data.spotify_tracks_genre import SpotifyTracksDataset
+from ..data.stellar_ds import StellarDataset
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, WeightedRandomSampler
@@ -309,6 +310,107 @@ def test_nn_credit_card(
     mlflow.log_metric("precision", precision)
     mlflow.log_metric("recall", recall)
     mlflow.log_metric("f1_score", f1score)
+
+    print("test accuracy %.3f " % (correct / total))
+    return float(correct) / total
+
+
+def train_nn_stellar(
+    X: pd.DataFrame,
+    y: pd.DataFrame,
+    embedded_cols: dict,
+    skorch_model: NeuralNetClassifier,
+    relaxed: bool = False,
+    epochs: int = 8,
+    batch_size: int = 1000,
+    lr: float = 0.01,
+    wd: float = 0.0,
+) -> GeneralisedNeuralNetworkModel:
+    embedded_col_names = embedded_cols.keys()
+    print(embedded_cols)
+    embedding_sizes = [
+        (n_categories + 1, min(50, (n_categories + 1) // 2))
+        for _, n_categories in embedded_cols.items()
+    ]
+
+    X_train, X_val, y_train, y_val = train_test_split(
+        X, y, test_size=0.10, random_state=0
+    )
+
+    train_ds = StellarDataset(X_train, y_train, embedded_col_names)
+    valid_ds = StellarDataset(X_val, y_val, embedded_col_names)
+
+    device = get_default_device()
+    n_cont = len(X.columns) - len(embedded_cols)
+    # n_class based on previous EDA
+    model = GeneralisedNeuralNetworkModel(embedding_sizes, n_cont, n_class=3)
+    to_device(model, device)
+
+    optim = get_optimizer(model, lr=lr, wd=wd)
+
+    train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
+    valid_dl = DataLoader(valid_ds, batch_size=batch_size, shuffle=True)
+    train_dl = DeviceDataLoader(train_dl, device)
+    valid_dl = DeviceDataLoader(valid_dl, device)
+
+    model = training_gnn_loop(
+        epochs,
+        model,
+        optim,
+        train_dl,
+        valid_dl,
+        skorch_model,
+        relaxed=relaxed,
+        bin=False,
+    )
+
+    return model
+
+
+def test_nn_stellar(
+    model: GeneralisedNeuralNetworkModel,
+    X: pd.DataFrame,
+    y: pd.DataFrame,
+    embedded_cols: dict,
+    batch_size: int = 1000,
+):
+    embedded_col_names = embedded_cols.keys()
+    test_ds = StellarDataset(X, y, embedded_col_names)
+
+    test_dl = DataLoader(test_ds, batch_size=batch_size)
+    device = get_default_device()
+    test_dl = DeviceDataLoader(test_dl, device)
+
+    all_preds, all_labels = [], []
+    total, correct = 0, 0
+    with torch.no_grad():
+        for x1, x2, y in test_dl:
+            current_batch_size = y.shape[0]
+            if 1 in list(y.shape):
+                y = y.squeeze(dim=1)
+            out = model(x1, x2)
+            y_pred_softmax = F.log_softmax(out, dim=1)
+            _, y_pred_tags = torch.max(y_pred_softmax, dim=1)
+
+            all_preds.extend(y_pred_tags.cpu().detach().numpy().astype(int).tolist())
+            all_labels.extend(y.cpu().detach().numpy().astype(int).tolist())
+
+            total += current_batch_size
+
+            correct += (y_pred_tags == y.squeeze()).float().sum()
+
+    all_labels = np.squeeze(np.array(all_labels).astype(int)).tolist()
+    all_preds = np.squeeze(np.array(all_preds).astype(int)).tolist()
+
+    # metrics for imbalanced data model
+    # precision = precision_score(all_labels, all_preds)
+    # recall = recall_score(all_labels, all_preds)
+    # f1score = f1_score(all_labels, all_preds)
+
+    # mlflow.log_metric("test_acc", (correct / total))
+    # mlflow.log_metric("precision", precision)
+    # mlflow.log_metric("recall", recall)
+    # mlflow.log_metric("f1_score", f1score)
 
     print("test accuracy %.3f " % (correct / total))
     return float(correct) / total

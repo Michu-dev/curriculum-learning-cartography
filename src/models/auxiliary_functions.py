@@ -63,13 +63,13 @@ def train_gnn_model(
     # y_train_qualities = y_train_qualities.squeeze(2)
     with tqdm(train_dl, unit="batch") as tepoch:
         for x1, x2, y in tepoch:
-            if not bin:
+            if 1 in list(y.shape) and not bin:
                 y = y.squeeze(dim=1)
             tepoch.set_description(f"Epoch {epoch+1}")
             batch = y.shape[0]
             output = model(x1, x2)
             # print(output.shape)
-            # print('--------------------')
+            # print("--------------------")
             # print(y.shape)
             loss = loss_fn(output, y)
 
@@ -85,9 +85,11 @@ def train_gnn_model(
                 }
 
                 pred_probs = skorch_model.predict_proba(X_train_clean)
+
                 y_train_qualities = get_self_confidence_for_each_label(
                     y_train_clean, pred_probs
                 )
+                # print(y_train_qualities)
 
                 if bin:
                     difficulty = y_train_qualities.squeeze(2)
@@ -135,7 +137,7 @@ def validate_gnn_loss(
     # y_val_qualities = y_val_qualities.squeeze(2)
     with tqdm(valid_dl, unit="batch") as tepoch:
         for x1, x2, y in tepoch:
-            if not bin:
+            if 1 in list(y.shape) and not bin:
                 y = y.squeeze(dim=1)
             tepoch.set_description(f"Epoch {epoch+1}")
             current_batch_size = y.shape[0]
@@ -161,9 +163,12 @@ def validate_gnn_loss(
                 }
 
                 pred_probs = skorch_model.predict_proba(X_val_clean)
+
                 y_val_qualities = get_self_confidence_for_each_label(
                     y_val_clean, pred_probs
                 )
+
+                # print(y_val_qualities[:10])
 
                 if bin:
                     difficulty = y_val_qualities.squeeze(2)
@@ -171,6 +176,13 @@ def validate_gnn_loss(
                     difficulty = np.expand_dims(y_val_qualities, axis=1)
 
                 difficulty = np.ones_like(difficulty) - difficulty
+                # indexes = np.where(difficulty < 0.5)[0]
+                # print(indexes)
+                # print(difficulty[indexes, :])
+                # print("---------------")
+                # print(preds[indexes, :])
+                # print("---------------")
+                # print(y[indexes, :])
                 # loss = loss_fn(out, y, difficulty, epoch + 1)
                 loss = relax_loss(loss, difficulty, epoch + 1)
 
