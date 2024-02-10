@@ -40,8 +40,13 @@ def main(
     epochs: int = 8,
     lr: float = 0.01,
 ):
+    mlflow.set_experiment("basic_ds_comparison")
     with mlflow.start_run():
         mlflow.set_tracking_uri("http://127.0.0.1:5000")
+        mlflow.set_tag(
+            "mlflow.runName",
+            f"Dataset: {dataset}, batch: {batch_size}, epochs: {epochs}, relaxed: {relaxed}",
+        )
 
         if dataset == "airline_passenger_satisfaction":
             train_df, test_df, embedded_cols = preprocess_airline_data()
@@ -64,8 +69,9 @@ def main(
             skorch_model = NeuralNetClassifier(
                 GeneralisedNeuralNetworkModel(embedding_sizes, 7),
                 criterion=torch.nn.BCEWithLogitsLoss,
-                max_epochs=8,
+                max_epochs=epochs,
             )
+            print(relaxed)
 
             if relaxed:
                 skorch_model.fit(X, y)
@@ -99,7 +105,7 @@ def main(
             skorch_model = NeuralNetClassifier(
                 GeneralisedNeuralNetworkModel([], len(X_rem[0])),
                 criterion=torch.nn.BCEWithLogitsLoss,
-                max_epochs=8,
+                max_epochs=epochs,
             )
 
             if relaxed:
@@ -137,7 +143,7 @@ def main(
             skorch_model = NeuralNetClassifier(
                 GeneralisedNeuralNetworkModel(embedding_sizes, n_cont, n_class=114),
                 criterion=torch.nn.CrossEntropyLoss,
-                max_epochs=8,
+                max_epochs=epochs,
             )
 
             if relaxed:
@@ -176,7 +182,7 @@ def main(
             skorch_model = NeuralNetClassifier(
                 GeneralisedNeuralNetworkModel(embedding_sizes, n_cont, n_class=3),
                 criterion=torch.nn.CrossEntropyLoss,
-                max_epochs=8,
+                max_epochs=epochs,
             )
 
             if relaxed:
