@@ -40,7 +40,10 @@ def main(
     epochs: int = 8,
     lr: float = 0.01,
 ):
-    mlflow.set_experiment("basic_ds_comparison")
+    mlflow.set_experiment("basic_ds_comparison_2")
+    torch.manual_seed(0)
+    np.random.seed(0)
+    torch.use_deterministic_algorithms(True)
     with mlflow.start_run():
         mlflow.set_tracking_uri("http://127.0.0.1:5000")
         mlflow.set_tag(
@@ -71,9 +74,18 @@ def main(
                 criterion=torch.nn.BCEWithLogitsLoss,
                 max_epochs=epochs,
             )
-            print(relaxed)
-
+            # X_skorch = SliceDict(**X)
+            # pred_probs = []
             if relaxed:
+                # print(y.dtype)
+                # pred_probs = cross_val_predict(
+                #     skorch_model,
+                #     X_skorch,
+                #     y,
+                #     cv=2,
+                #     method="predict_proba",
+                # )
+                # print(pred_probs)
                 skorch_model.fit(X, y)
 
             model = train_nn_airline(

@@ -407,7 +407,7 @@ def test_nn_stellar(
     # recall = recall_score(all_labels, all_preds)
     # f1score = f1_score(all_labels, all_preds)
 
-    # mlflow.log_metric("test_acc", (correct / total))
+    mlflow.log_metric("test_acc", (correct / total))
     # mlflow.log_metric("precision", precision)
     # mlflow.log_metric("recall", recall)
     # mlflow.log_metric("f1_score", f1score)

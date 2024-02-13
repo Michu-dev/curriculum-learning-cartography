@@ -8,6 +8,7 @@ from skorch import NeuralNetClassifier
 from tqdm import tqdm
 from cleanlab.rank import get_self_confidence_for_each_label
 from .loss_function_relaxation import relax_loss
+from functorch.compile import draw_graph
 
 
 def to_device(data, device):
@@ -17,9 +18,9 @@ def to_device(data, device):
     return data.to(device, non_blocking=True)
 
 
-def get_optimizer(model, lr=0.001, wd=0.0):
+def get_optimizer(model, lr=0.001, wd=0):
     parameters = filter(lambda p: p.requires_grad, model.parameters())
-    optim = torch.optim.Adam(parameters, lr=lr, weight_decay=wd)
+    optim = torch.optim.SGD(parameters, lr=lr, weight_decay=wd)
     return optim
 
 
