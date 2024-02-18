@@ -16,11 +16,15 @@ from .auxiliary_functions import (
     to_device,
     train_gnn_model,
     validate_gnn_loss,
+    data_cartography,
+    cartography_map_plot,
     DeviceDataLoader,
 )
 from sklearn.metrics import precision_score, recall_score, f1_score, roc_auc_score
 from sklearn.model_selection import train_test_split
 import mlflow
+import tensorflow as tf
+from pathlib import Path
 
 
 def training_gnn_loop(
@@ -78,13 +82,37 @@ def train_nn_airline(
 
     device = get_default_device()
     model = GeneralisedNeuralNetworkModel(embedding_sizes, 7)
+    model_for_cartography = GeneralisedNeuralNetworkModel(embedding_sizes, 7)
+
     to_device(model, device)
+    to_device(model_for_cartography, device)
+    optim_for_cartography = get_optimizer(model_for_cartography, lr=lr, wd=wd)
     optim = get_optimizer(model, lr=lr, wd=wd)
 
     train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
     valid_dl = DataLoader(valid_ds, batch_size=batch_size, shuffle=True)
     train_dl = DeviceDataLoader(train_dl, device)
     valid_dl = DeviceDataLoader(valid_dl, device)
+
+    loss_fn = torch.nn.BCEWithLogitsLoss()
+
+    path_to_save_training_dynamics = Path("./") / "airline_training_dynamics"
+
+    cartography_stats_df = data_cartography(
+        model_for_cartography,
+        train_dl,
+        loss_fn,
+        optim_for_cartography,
+        epochs,
+        path_to_save_training_dynamics,
+        binary=True,
+    )
+
+    print(cartography_stats_df)
+
+    # keras_data_cartography_params(
+    #     model, X_train, y_train, X_val, y_val, embedded_col_names, binary=True
+    # )
 
     model = training_gnn_loop(
         epochs, model, optim, train_dl, valid_dl, skorch_model, relaxed=relaxed
@@ -109,7 +137,7 @@ def test_nn_airline(
     preds = []
     total, correct = 0, 0
     with torch.no_grad():
-        for x1, x2, y in test_dl:
+        for _, x1, x2, y in test_dl:
             current_batch_size = y.shape[0]
             out = model(x1, x2)
             preds.append(out)
@@ -192,7 +220,7 @@ def test_nn_spotify_tracks(
     all_preds, all_labels = [], []
     total, correct = 0, 0
     with torch.no_grad():
-        for x1, x2, y in test_dl:
+        for _, x1, x2, y in test_dl:
             current_batch_size = y.shape[0]
             y = y.squeeze(dim=1)
             out = model(x1, x2)
@@ -286,7 +314,7 @@ def test_nn_credit_card(
     all_preds, all_labels = [], []
     total, correct = 0, 0
     with torch.no_grad():
-        for x1, x2, y in test_dl:
+        for _, x1, x2, y in test_dl:
             current_batch_size = y.shape[0]
             out = model(x1, x2)
 
@@ -344,14 +372,39 @@ def train_nn_stellar(
     n_cont = len(X.columns) - len(embedded_cols)
     # n_class based on previous EDA
     model = GeneralisedNeuralNetworkModel(embedding_sizes, n_cont, n_class=3)
+    model_for_cartography = GeneralisedNeuralNetworkModel(
+        embedding_sizes, n_cont, n_class=3
+    )
     to_device(model, device)
+    to_device(model_for_cartography, device)
 
     optim = get_optimizer(model, lr=lr, wd=wd)
+    optim_for_cartography = get_optimizer(model_for_cartography, lr=lr, wd=wd)
 
     train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
     valid_dl = DataLoader(valid_ds, batch_size=batch_size, shuffle=True)
     train_dl = DeviceDataLoader(train_dl, device)
     valid_dl = DeviceDataLoader(valid_dl, device)
+
+    loss_fn = torch.nn.CrossEntropyLoss()
+
+    path_to_save_training_dynamics = Path("./") / "stellar_training_dynamics"
+
+    cartography_stats_df = data_cartography(
+        model_for_cartography,
+        train_dl,
+        loss_fn,
+        optim_for_cartography,
+        epochs,
+        path_to_save_training_dynamics,
+        binary=False,
+    )
+
+    cartography_map_plot(
+        cartography_stats_df.confidence,
+        cartography_stats_df.variability,
+        cartography_stats_df.correctness,
+    )
 
     model = training_gnn_loop(
         epochs,
@@ -384,7 +437,7 @@ def test_nn_stellar(
     all_preds, all_labels = [], []
     total, correct = 0, 0
     with torch.no_grad():
-        for x1, x2, y in test_dl:
+        for _, x1, x2, y in test_dl:
             current_batch_size = y.shape[0]
             if 1 in list(y.shape):
                 y = y.squeeze(dim=1)
