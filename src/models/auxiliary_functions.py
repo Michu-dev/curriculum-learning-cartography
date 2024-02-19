@@ -101,7 +101,7 @@ def plot_cartography_map(
         corr_frac=lambda d: d.correctness / d.correctness.max()
     )
     cartography_stats_df["correct."] = [
-        f"{x:.1f}" for x in cartography_stats_df["corr_frac"]
+        round(x, 1) for x in cartography_stats_df["corr_frac"]
     ]
 
     main_metric = "variability"
@@ -277,131 +277,62 @@ def data_cartography(
     confidence_ = {}
     variability_ = {}
     correctness_ = {}
+    cartography_dir = path_to_save_training_dynamics / "td_metrics"
+    td_metrics_filename = cartography_dir / "td_metrics.jsonl"
 
-    for guid in tqdm(training_dynamics):
-        correctness_trend = []
-        true_probs_trend = []
+    if not cartography_dir.exists():
+        cartography_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(
+            f"Compute training dynamic metrics for {len(training_dynamics)} train instances."
+        )
 
-        record = training_dynamics[guid]
-        for epoch_logits in record["logits"]:
-            probs = (
-                torch.nn.functional.sigmoid(torch.Tensor(epoch_logits))
-                if binary
-                else torch.nn.functional.softmax(torch.Tensor(epoch_logits), dim=-1)
-            )
-            probs = torch.Tensor([1.0 - probs[0], probs[0]]) if binary else probs
-            true_class_prob = float(probs[int(record["gold"])])
-            true_probs_trend.append(true_class_prob)
+        for guid in tqdm(training_dynamics):
+            correctness_trend = []
+            true_probs_trend = []
 
-            prediction = np.argmax(probs)
-            is_correct = (prediction == record["gold"]).item()
-            correctness_trend.append(is_correct)
+            record = training_dynamics[guid]
+            for epoch_logits in record["logits"]:
+                probs = (
+                    torch.nn.functional.sigmoid(torch.Tensor(epoch_logits))
+                    if binary
+                    else torch.nn.functional.softmax(torch.Tensor(epoch_logits), dim=-1)
+                )
+                probs = torch.Tensor([1.0 - probs[0], probs[0]]) if binary else probs
+                true_class_prob = float(probs[int(record["gold"])])
+                true_probs_trend.append(true_class_prob)
 
-        correctness_[guid] = sum(correctness_trend)
-        confidence_[guid] = np.mean(true_probs_trend)
-        variability_[guid] = np.std(true_probs_trend)
+                prediction = np.argmax(probs)
+                is_correct = (prediction == record["gold"]).item()
+                correctness_trend.append(is_correct)
 
-    column_names = [
-        "guid",
-        "confidence",
-        "variability",
-        "correctness",
-    ]
-    df = pd.DataFrame(
-        [
+            correctness_[guid] = sum(correctness_trend)
+            confidence_[guid] = np.mean(true_probs_trend)
+            variability_[guid] = np.std(true_probs_trend)
+
+        column_names = [
+            "guid",
+            "confidence",
+            "variability",
+            "correctness",
+        ]
+        df = pd.DataFrame(
             [
-                guid,
-                confidence_[guid],
-                variability_[guid],
-                correctness_[guid],
-            ]
-            for guid in correctness_
-        ],
-        columns=column_names,
-    )
+                [
+                    guid,
+                    confidence_[guid],
+                    variability_[guid],
+                    correctness_[guid],
+                ]
+                for guid in correctness_
+            ],
+            columns=column_names,
+        )
+        df.to_json(td_metrics_filename, orient="records", lines=True)
+    else:
+        logger.info(f"Read training dynamic metric.")
+        df = pd.read_json(td_metrics_filename, orient="records", lines=True)
 
     return df
-
-
-# def keras_data_cartography_params(
-#     model: GeneralisedNeuralNetworkModel,
-#     X_train: pd.DataFrame,
-#     y_train: pd.DataFrame,
-#     X_val: pd.DataFrame,
-#     y_val: pd.DataFrame,
-#     embedded_col_names: list,
-#     binary: bool = False,
-# ):
-#     X1_keras = X_train.loc[:, embedded_col_names].copy().values.astype(np.int64)
-#     X2_keras = X_train.drop(columns=embedded_col_names).copy().values.astype(np.float32)
-#     y_keras = y_train.copy().values.astype(np.int32)
-
-#     X1_keras_val = X_val.loc[:, embedded_col_names].copy().values.astype(np.int64)
-#     X2_keras_val = (
-#         X_val.drop(columns=embedded_col_names).copy().values.astype(np.float32)
-#     )
-#     y_keras_val = y_val.copy().values.astype(np.int32)
-
-#     keras_ds_x1 = tf.data.Dataset.from_tensor_slices(X1_keras)
-#     keras_ds_x2 = tf.data.Dataset.from_tensor_slices(X2_keras)
-#     keras_ds_y = tf.data.Dataset.from_tensor_slices(y_keras)
-#     keras_ds_x = tf.data.Dataset.zip((keras_ds_x1, keras_ds_x2))
-#     keras_ds = tf.data.Dataset.zip((keras_ds_x, keras_ds_y))
-
-#     keras_ds_x1 = tf.data.Dataset.from_tensor_slices(X1_keras_val)
-#     keras_ds_x2 = tf.data.Dataset.from_tensor_slices(X2_keras_val)
-#     keras_ds_y = tf.data.Dataset.from_tensor_slices(y_keras_val)
-#     keras_ds_x = tf.data.Dataset.zip((keras_ds_x1, keras_ds_x2))
-#     keras_ds_val = tf.data.Dataset.zip((keras_ds_x, keras_ds_y))
-#     # print(tuple(zip(*keras_ds.take(1))))
-#     # X1_train, X2_train, y_train = keras_ds.map(lambda x, y, z: (x, y, z))
-#     # X1_val, X2_val, y_val = keras_ds_val.map(lambda x, y, z: (x, y, z))
-
-#     keras_model = nobuco.pytorch_to_keras(
-#         model,
-#         args=[torch.tensor(X1_keras), torch.tensor(X2_keras)],
-#         inputs_channel_order=ChannelOrder.TENSORFLOW,
-#         outputs_channel_order=ChannelOrder.TENSORFLOW,
-#     )
-#     print("asdasdasdasd")
-#     keras_ds_shuffled = keras_ds.shuffle(len(y_keras)).batch(100)
-
-#     dataset_map = tvl.learning.DataMapCallback(
-#         keras_ds.batch(100),
-#         outputs_to_probabilities=lambda x: (
-#             tf.nn.sigmoid(x[0]) if binary else tf.nn.softmax(x[0])
-#         ),  # Model outputs a tuple, where the logits are at the first index
-#         sparse_labels=not binary,
-#     )
-#     optimizer = tf.keras.optimizers.Adam(learning_rate=1e-4)
-#     loss = tf.keras.losses.BinaryCrossentropy(from_logits=True)
-
-#     # callbacks = [dataset_map, tf.keras.callbacks.EarlyStopping(patience=5)]
-#     callbacks = [dataset_map]
-
-#     keras_model.compile(optimizer=optimizer, loss=loss, metrics=["accuracy"])
-#     keras_model.fit(
-#         keras_ds_shuffled,
-#         # [X1_keras, X2_keras],
-#         # y_keras,
-#         epochs=10,
-#         validation_data=keras_ds_val.batch(32),
-#         steps_per_epoch=150,
-#         callbacks=callbacks,
-#     )
-
-#     print(dataset_map.confidence)
-#     print(dataset_map.variability)
-#     print(dataset_map.correctness)
-#     print("----------------")
-#     print(set(dataset_map.correctness))
-#     print("----------------")
-#     print(set(dataset_map.confidence))
-#     print("----------------")
-
-#     cartography_map_plot(
-#         dataset_map.confidence, dataset_map.variability, dataset_map.correctness
-#     )
 
 
 def train_gnn_model(

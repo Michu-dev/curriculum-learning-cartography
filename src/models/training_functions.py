@@ -109,8 +109,6 @@ def train_nn_airline(
         binary=True,
     )
 
-    print(cartography_stats_df)
-
     if plot_map:
         plot_cartography_map(
             cartography_stats_df,
@@ -118,10 +116,6 @@ def train_nn_airline(
             "Airline_passengers_satisfaction",
             True,
         )
-
-    # keras_data_cartography_params(
-    #     model, X_train, y_train, X_val, y_val, embedded_col_names, binary=True
-    # )
 
     model = training_gnn_loop(
         epochs, model, optim, train_dl, valid_dl, skorch_model, relaxed=relaxed
@@ -190,14 +184,42 @@ def train_nn_spotify_tracks(
     n_cont = len(X.columns) - len(embedded_cols)
     # n_class based on previous EDA
     model = GeneralisedNeuralNetworkModel(embedding_sizes, n_cont, n_class=114)
+    model_for_cartography = GeneralisedNeuralNetworkModel(
+        embedding_sizes, n_cont, n_class=114
+    )
     to_device(model, device)
+    to_device(model_for_cartography, device)
 
     optim = get_optimizer(model, lr=lr, wd=wd)
+    optim_for_cartography = get_optimizer(model_for_cartography, lr=lr, wd=wd)
 
     train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
     valid_dl = DataLoader(valid_ds, batch_size=batch_size, shuffle=True)
     train_dl = DeviceDataLoader(train_dl, device)
     valid_dl = DeviceDataLoader(valid_dl, device)
+
+    loss_fn = torch.nn.CrossEntropyLoss()
+    path_to_save_training_dynamics = (
+        Path("./") / "spotify_tracks_genre_training_dynamics"
+    )
+
+    cartography_stats_df = data_cartography(
+        model_for_cartography,
+        train_dl,
+        loss_fn,
+        optim_for_cartography,
+        epochs,
+        path_to_save_training_dynamics,
+        binary=False,
+    )
+
+    if plot_map:
+        plot_cartography_map(
+            cartography_stats_df,
+            path_to_save_training_dynamics,
+            "Spotify_tracks_genre",
+            True,
+        )
 
     model = training_gnn_loop(
         epochs,
@@ -281,12 +303,15 @@ def train_nn_credit_card(
     valid_ds = CreditCardDataset(X_val, y_val)
     device = get_default_device()
     model = GeneralisedNeuralNetworkModel([], len(X_train[0]))
+    model_for_cartography = GeneralisedNeuralNetworkModel([], len(X_train[0]))
     to_device(model, device)
+    to_device(model_for_cartography, device)
 
     optim = get_optimizer(model, lr=lr, wd=wd)
+    optim_for_cartography = get_optimizer(model_for_cartography, lr=lr, wd=wd)
     sample_train_weights = [0] * len(train_ds)
 
-    for idx, (x1, x2, y) in enumerate(train_ds):
+    for idx, (_, _, _, y) in enumerate(train_ds):
         class_weight = propotions[y[0].astype(int)]
         sample_train_weights[idx] = class_weight
 
@@ -298,6 +323,27 @@ def train_nn_credit_card(
     valid_dl = DataLoader(valid_ds, batch_size=batch_size, shuffle=True)
     train_dl = DeviceDataLoader(train_dl, device)
     valid_dl = DeviceDataLoader(valid_dl, device)
+
+    loss_fn = torch.nn.BCEWithLogitsLoss()
+    path_to_save_training_dynamics = Path("./") / "card_fraud_training_dynamics"
+
+    cartography_stats_df = data_cartography(
+        model_for_cartography,
+        train_dl,
+        loss_fn,
+        optim_for_cartography,
+        epochs,
+        path_to_save_training_dynamics,
+        binary=True,
+    )
+
+    if plot_map:
+        plot_cartography_map(
+            cartography_stats_df,
+            path_to_save_training_dynamics,
+            "Credit_card_fraud_detection",
+            True,
+        )
 
     model = training_gnn_loop(
         epochs,
