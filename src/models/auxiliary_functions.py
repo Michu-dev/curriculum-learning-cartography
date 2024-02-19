@@ -57,60 +57,6 @@ class DeviceDataLoader:
         return len(self.dl)
 
 
-def cartography_map_plot(
-    confidence: np.ndarray, variability: np.ndarray, correctness: np.ndarray
-):
-    _, ax = plt.subplots(figsize=(9, 7))
-
-    sns.scatterplot(x=variability, y=confidence, hue=correctness, ax=ax)
-    sns.kdeplot(
-        x=variability,
-        y=confidence,
-        levels=8,
-        color=sns.color_palette("Paired")[7],
-        linewidths=1,
-        ax=ax,
-    )
-
-    # dataset details to implement
-    ax.set(
-        title="Data map for airline_passenger_satisfaction train set\nbased on a feed-forward neural net classifier",
-        xlabel="Variability",
-        ylabel="Confidence",
-    )
-
-    # Annotations
-    box_style = {"boxstyle": "round", "facecolor": "white", "ec": "black"}
-    ax.text(
-        0.14,
-        0.84,
-        "easy-to-learn",
-        transform=ax.transAxes,
-        verticalalignment="top",
-        bbox=box_style,
-    )
-    ax.text(
-        0.75,
-        0.5,
-        "ambiguous",
-        transform=ax.transAxes,
-        verticalalignment="top",
-        bbox=box_style,
-    )
-    ax.text(
-        0.14,
-        0.14,
-        "hard-to-learn",
-        transform=ax.transAxes,
-        verticalalignment="top",
-        bbox=box_style,
-    )
-
-    ax.legend(title="Correctness")
-
-    plt.show()
-
-
 def log_training_dynamics(
     output_dir: Path,
     epoch: int,
@@ -134,6 +80,120 @@ def log_training_dynamics(
     epoch_file_name = logging_dir / f"dynamics_epoch_{epoch}.jsonl"
     td_df.to_json(epoch_file_name, lines=True, orient="records")
     logger.info(f"Training Dynamics logged to {epoch_file_name}")
+
+
+def plot_cartography_map(
+    cartography_stats_df: pd.DataFrame,
+    plot_dir: Path,
+    title: str,
+    show_hist: bool,
+    model: str = "Feed-Forward-NN",
+):
+    # Set style.
+    sns.set(style="whitegrid", font_scale=1.6, font="Georgia", context="paper")
+    logger.info(f"Plotting figure for {title} using the Feed-Forward NN model ...")
+
+    # Subsample data to plot, so the plot is not too busy.
+    # cartography_stats_df = cartography_stats_df.sample(n=max_instances_to_plot if dataframe.shape[0] > max_instances_to_plot else len(dataframe))
+
+    # Normalize correctness to a value between 0 and 1.
+    cartography_stats_df = cartography_stats_df.assign(
+        corr_frac=lambda d: d.correctness / d.correctness.max()
+    )
+    cartography_stats_df["correct."] = [
+        f"{x:.1f}" for x in cartography_stats_df["corr_frac"]
+    ]
+
+    main_metric = "variability"
+    other_metric = "confidence"
+    hue = "correct."
+
+    num_hues = len(cartography_stats_df[hue].unique().tolist())
+    style = hue
+
+    if not show_hist:
+        fig, ax0 = plt.subplots(1, 1, figsize=(8, 6))
+    else:
+        fig = plt.figure(
+            figsize=(14, 10),
+        )
+        gs = fig.add_gridspec(3, 2, width_ratios=[5, 1])
+        ax0 = fig.add_subplot(gs[:, 0])
+
+    pal = sns.diverging_palette(260, 15, n=num_hues, sep=10, center="dark")
+
+    plot = sns.scatterplot(
+        x=main_metric,
+        y=other_metric,
+        ax=ax0,
+        data=cartography_stats_df,
+        hue=hue,
+        palette=pal,
+        style=style,
+        s=30,
+    )
+
+    # Annotate Regions.
+    bb = lambda c: dict(boxstyle="round,pad=0.3", ec=c, lw=2, fc="white")
+    func_annotate = lambda text, xyc, bbc: ax0.annotate(
+        text,
+        xy=xyc,
+        xycoords="axes fraction",
+        fontsize=15,
+        color="black",
+        va="center",
+        ha="center",
+        rotation=350,
+        bbox=bb(bbc),
+    )
+    an1 = func_annotate("ambiguous", xyc=(0.9, 0.5), bbc="black")
+    an2 = func_annotate("easy-to-learn", xyc=(0.27, 0.85), bbc="r")
+    an3 = func_annotate("hard-to-learn", xyc=(0.35, 0.25), bbc="b")
+
+    if not show_hist:
+        plot.legend(ncol=1, bbox_to_anchor=[0.175, 0.5], loc="right")
+    else:
+        plot.legend(fancybox=True, shadow=True, ncol=1)
+    plot.set_xlabel("variability")
+    plot.set_ylabel("confidence")
+
+    if show_hist:
+        plot.set_title(f"{title}-{model} Data Map", fontsize=17)
+
+        # Make the histograms.
+        ax1 = fig.add_subplot(gs[0, 1])
+        ax2 = fig.add_subplot(gs[1, 1])
+        ax3 = fig.add_subplot(gs[2, 1])
+
+        plott0 = cartography_stats_df.hist(
+            column=["confidence"], ax=ax1, color="#622a87"
+        )
+        plott0[0].set_title("")
+        plott0[0].set_xlabel("confidence")
+        plott0[0].set_ylabel("density")
+
+        plott1 = cartography_stats_df.hist(column=["variability"], ax=ax2, color="teal")
+        plott1[0].set_title("")
+        plott1[0].set_xlabel("variability")
+        plott1[0].set_ylabel("density")
+
+        plot2 = sns.countplot(
+            x="correct.", data=cartography_stats_df, ax=ax3, color="#86bf91"
+        )
+        ax3.xaxis.grid(True)  # Show the vertical gridlines
+
+        plot2.set_title("")
+        plot2.set_xlabel("correctness")
+        plot2.set_ylabel("density")
+
+    fig.tight_layout()
+    filename = (
+        f"{plot_dir}/{title}_{model}.pdf"
+        if show_hist
+        else f"{plot_dir}/compact_{title}_{model}.pdf"
+    )
+    fig.savefig(filename, dpi=300)
+    logger.info(f"Plot saved to {filename}")
 
 
 def read_training_dynamics(model_dir: Path) -> dict:

@@ -17,7 +17,7 @@ from .auxiliary_functions import (
     train_gnn_model,
     validate_gnn_loss,
     data_cartography,
-    cartography_map_plot,
+    plot_cartography_map,
     DeviceDataLoader,
 )
 from sklearn.metrics import precision_score, recall_score, f1_score, roc_auc_score
@@ -64,6 +64,7 @@ def train_nn_airline(
     epochs: int = 8,
     batch_size: int = 1000,
     lr: float = 0.01,
+    plot_map: bool = False,
     wd: float = 0.0,
 ) -> GeneralisedNeuralNetworkModel:
     embedded_col_names = embedded_cols.keys()
@@ -109,6 +110,14 @@ def train_nn_airline(
     )
 
     print(cartography_stats_df)
+
+    if plot_map:
+        plot_cartography_map(
+            cartography_stats_df,
+            path_to_save_training_dynamics,
+            "Airline_passengers_satisfaction",
+            True,
+        )
 
     # keras_data_cartography_params(
     #     model, X_train, y_train, X_val, y_val, embedded_col_names, binary=True
@@ -160,6 +169,7 @@ def train_nn_spotify_tracks(
     epochs: int = 8,
     batch_size: int = 1000,
     lr: float = 0.01,
+    plot_map: bool = False,
     wd: float = 0.0,
 ) -> GeneralisedNeuralNetworkModel:
     embedded_col_names = embedded_cols.keys()
@@ -260,6 +270,7 @@ def train_nn_credit_card(
     epochs: int = 8,
     batch_size: int = 1000,
     lr: float = 0.01,
+    plot_map: bool = False,
     wd: float = 0.0,
 ) -> GeneralisedNeuralNetworkModel:
     X_train, X_val, y_train, y_val = train_test_split(
@@ -352,6 +363,7 @@ def train_nn_stellar(
     epochs: int = 8,
     batch_size: int = 1000,
     lr: float = 0.01,
+    plot_map: bool = False,
     wd: float = 0.0,
 ) -> GeneralisedNeuralNetworkModel:
     embedded_col_names = embedded_cols.keys()
@@ -400,11 +412,10 @@ def train_nn_stellar(
         binary=False,
     )
 
-    cartography_map_plot(
-        cartography_stats_df.confidence,
-        cartography_stats_df.variability,
-        cartography_stats_df.correctness,
-    )
+    if plot_map:
+        plot_cartography_map(
+            cartography_stats_df, path_to_save_training_dynamics, "Stellar", True
+        )
 
     model = training_gnn_loop(
         epochs,

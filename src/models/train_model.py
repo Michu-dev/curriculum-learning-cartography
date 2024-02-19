@@ -33,12 +33,16 @@ from imblearn.over_sampling import SMOTE
 @plac.opt("batch_size", "Batch size of the data", int, "b")
 @plac.opt("epochs", "Epochs number of training", int, "e")
 @plac.opt("lr", "Learning rate of optimizer", float, "l")
+@plac.opt(
+    "plot_map", "Flag whether to plot and save cartography map for dataset", bool, "p"
+)
 def main(
     dataset: str = "credit_card",
     relaxed: bool = False,
     batch_size: int = 1000,
     epochs: int = 8,
     lr: float = 0.01,
+    plot_map: bool = False,
 ):
     mlflow.set_experiment("basic_ds_comparison_2")
     torch.manual_seed(0)
@@ -96,6 +100,7 @@ def main(
                 epochs=epochs,
                 batch_size=batch_size,
                 lr=lr,
+                plot_map=plot_map,
             )
             final_probs = test_nn_airline(
                 model, test_df, embedded_cols, batch_size=batch_size
@@ -132,6 +137,7 @@ def main(
                 epochs=epochs,
                 batch_size=batch_size,
                 lr=lr,
+                plot_map=plot_map,
             )
             test_acc = test_nn_credit_card(model, X_test, y_test, batch_size=batch_size)
         elif dataset == "spotify_tracks":
@@ -170,6 +176,7 @@ def main(
                 epochs=epochs,
                 batch_size=batch_size,
                 lr=lr,
+                plot_map=plot_map,
             )
             test_acc = test_nn_spotify_tracks(
                 model, X_test, y_test, embedded_cols, batch_size=batch_size
@@ -209,6 +216,7 @@ def main(
                 epochs=epochs,
                 batch_size=batch_size,
                 lr=lr,
+                plot_map=plot_map,
             )
 
             test_acc = test_nn_stellar(
