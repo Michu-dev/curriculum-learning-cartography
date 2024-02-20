@@ -1,7 +1,5 @@
-from typing import Any
-import torch
 import os
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 import pandas as pd
 import numpy as np
 
@@ -91,20 +89,3 @@ class AirlinePassengersDataset(Dataset):
 
     def __len__(self):
         return len(self.y)
-
-
-class ToTensor:
-    def __call__(self, sample):
-        inputs, targets = sample
-        return torch.from_numpy(inputs), torch.from_numpy(targets)
-
-
-if __name__ == "__main__":
-    print("")
-# dataset = AirlinePassengersDataset(transform=None)
-# first_data = dataset[0]
-
-# features, labels = first_data
-# print(features)
-# print(len(dataset))
-# print(type(features), type(labels))

@@ -2,56 +2,28 @@ from ..data.airline_passenger_satisfaction_train import AirlinePassengersDataset
 from ..data.credit_card_fraud import CreditCardDataset
 from ..data.spotify_tracks_genre import SpotifyTracksDataset
 from ..data.stellar_ds import StellarDataset
+from ..features.cartography_functions import data_cartography, plot_cartography_map
+from .generalised_neural_network_model import GeneralisedNeuralNetworkModel
+from .loss_function_relaxation import get_default_device
+from .train_run import (
+    get_optimizer,
+    to_device,
+    training_gnn_loop,
+    DeviceDataLoader,
+)
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, WeightedRandomSampler, Subset
 import numpy as np
 import pandas as pd
-from .generalised_neural_network_model import GeneralisedNeuralNetworkModel
 from torch.utils.data import DataLoader
 from skorch import NeuralNetClassifier
 from skorch.helper import SliceDict
-from .loss_function_relaxation import get_default_device
-from .auxiliary_functions import (
-    get_optimizer,
-    to_device,
-    train_gnn_model,
-    validate_gnn_loss,
-    data_cartography,
-    plot_cartography_map,
-    DeviceDataLoader,
-)
-from sklearn.metrics import precision_score, recall_score, f1_score, roc_auc_score
+from sklearn.metrics import precision_score, recall_score, f1_score
 from sklearn.model_selection import train_test_split, cross_val_predict
 import mlflow
 from pathlib import Path
 from cleanlab.rank import get_self_confidence_for_each_label
-
-
-def training_gnn_loop(
-    epochs: int,
-    model: GeneralisedNeuralNetworkModel,
-    optimizer: torch.optim.Adam,
-    train_dl: DeviceDataLoader,
-    valid_dl: DeviceDataLoader,
-    relaxed: bool = False,
-    bin: bool = True,
-) -> GeneralisedNeuralNetworkModel:
-    for i in range(epochs):
-        loss = train_gnn_model(model, optimizer, train_dl, i, relaxed=relaxed, bin=bin)
-        val_loss, acc, all_preds, all_labels = validate_gnn_loss(
-            model, valid_dl, i, relaxed=relaxed, bin=bin
-        )
-
-        mlflow.log_metric("train_loss", loss, step=i)
-        mlflow.log_metric("validation_loss", val_loss, step=i)
-        mlflow.log_metric("Accuracy", acc, step=i)
-
-        if bin:
-            auc = roc_auc_score(all_labels, all_preds)
-            mlflow.log_metric("roc_auc", auc, step=i)
-
-    return model
 
 
 def train_nn_airline(
@@ -227,6 +199,7 @@ def train_nn_spotify_tracks(
     n_cont = len(X.columns) - len(embedded_cols)
     # n_class based on previous EDA
     model = GeneralisedNeuralNetworkModel(embedding_sizes, n_cont, n_class=114)
+
     model_for_cartography = GeneralisedNeuralNetworkModel(
         embedding_sizes, n_cont, n_class=114
     )

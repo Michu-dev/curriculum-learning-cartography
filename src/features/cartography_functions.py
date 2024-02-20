@@ -1,55 +1,20 @@
+from ..models.generalised_neural_network_model import GeneralisedNeuralNetworkModel
+from ..models.train_run import DeviceDataLoader
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 import numpy as np
 import pandas as pd
-from .generalised_neural_network_model import GeneralisedNeuralNetworkModel
-from torch.utils.data import DataLoader
-from skorch import NeuralNetClassifier
-from tqdm import tqdm
-from cleanlab.rank import get_self_confidence_for_each_label
-from .loss_function_relaxation import relax_loss
 import seaborn as sns
 import matplotlib.pyplot as plt
 from pathlib import Path
 from typing import List
-import logging
 import json
+import logging
+from tqdm import tqdm
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s", level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-
-
-def to_device(data, device):
-    """Move tensor(s) to chosen device"""
-    if isinstance(data, (list, tuple)):
-        return [to_device(x, device) for x in data]
-    return data.to(device, non_blocking=True)
-
-
-def get_optimizer(model, lr=0.001, wd=0):
-    parameters = filter(lambda p: p.requires_grad, model.parameters())
-    optim = torch.optim.SGD(parameters, lr=lr, weight_decay=wd)
-    return optim
-
-
-class DeviceDataLoader:
-    """Wrap a dataloader to move data to a device"""
-
-    def __init__(self, dl, device):
-        self.dl = dl
-        self.device = device
-
-    def __iter__(self):
-        """Yield a batch of data after moving it to device"""
-        for b in self.dl:
-            yield to_device(b, self.device)
-
-    def __len__(self):
-        """Number of batches"""
-        return len(self.dl)
 
 
 def log_training_dynamics(
@@ -232,7 +197,7 @@ def data_cartography(
             total, sum_loss = 0, 0
             train_ids, train_golds, train_logits = None, None, None
             with tqdm(train_dl, unit="batch") as tepoch:
-                for i, (idx, x1, x2, y) in enumerate(tepoch):
+                for i, (idx, x1, x2, y, _) in enumerate(tepoch):
                     tepoch.set_description(f"Epoch {epoch+1}")
 
                     if 1 in list(y.shape) and not binary:
@@ -328,105 +293,3 @@ def data_cartography(
         df = pd.read_json(td_metrics_filename, orient="records", lines=True)
 
     return df
-
-
-def train_gnn_model(
-    model: GeneralisedNeuralNetworkModel,
-    optim: torch.optim.Adam,
-    train_dl: DataLoader,
-    epoch: int,
-    relaxed: bool = False,
-    bin: bool = True,
-) -> float:
-    model.train()
-    total = 0
-    sum_loss = 0
-    print("Training:")
-    reduction = "none" if relaxed else "mean"
-    loss_fn = (
-        nn.BCEWithLogitsLoss(reduction=reduction)
-        if bin
-        else nn.CrossEntropyLoss(reduction=reduction)
-    )
-    # start_idx = 0
-    # y_train_qualities = y_train_qualities.squeeze(2)
-    with tqdm(train_dl, unit="batch") as tepoch:
-        for _, x1, x2, y, difficulties in tepoch:
-            if 1 in list(y.shape) and not bin:
-                y = y.squeeze(dim=1)
-            tepoch.set_description(f"Epoch {epoch+1}")
-            batch = y.shape[0]
-            output = model(x1, x2)
-            # print(output.shape)
-            # print("--------------------")
-            # print(y.shape)
-            loss = loss_fn(output, y)
-
-            if relaxed:
-                loss = relax_loss(loss, difficulties, epoch + 1)
-
-            optim.zero_grad()
-            loss.backward()
-            optim.step()
-            total += batch
-            sum_loss += batch * (loss.item())
-            # start_idx += batch
-
-            tepoch.set_postfix(loss=sum_loss / total)
-
-    return sum_loss / total
-
-
-def validate_gnn_loss(
-    model: GeneralisedNeuralNetworkModel,
-    valid_dl: DataLoader,
-    epoch: int,
-    relaxed: bool = False,
-    bin: bool = True,
-) -> tuple[float, float, list, list]:
-    model.eval()
-    total = 0
-    sum_loss = 0
-    correct = 0
-    all_preds, all_labels = [], []
-    print("Validation:")
-    reduction = "none" if relaxed else "mean"
-    loss_fn = (
-        nn.BCEWithLogitsLoss(reduction=reduction)
-        if bin
-        else nn.CrossEntropyLoss(reduction=reduction)
-    )
-    # start_idx = 0
-    # y_val_qualities = y_val_qualities.squeeze(2)
-    with tqdm(valid_dl, unit="batch") as tepoch:
-        for _, x1, x2, y, difficulties in tepoch:
-            if 1 in list(y.shape) and not bin:
-                y = y.squeeze(dim=1)
-            tepoch.set_description(f"Epoch {epoch+1}")
-            current_batch_size = y.shape[0]
-            out = model(x1, x2)
-
-            preds = F.sigmoid(out).round() if bin else F.log_softmax(out, dim=1)
-            if not bin:
-                _, preds = torch.max(preds, dim=1)
-
-            all_preds.extend(preds.cpu().detach().numpy().astype(int).tolist())
-            all_labels.extend(y.cpu().detach().numpy().astype(int).tolist())
-
-            loss = loss_fn(out, y)
-
-            if relaxed:
-                loss = relax_loss(loss, difficulties, epoch + 1)
-
-            sum_loss += current_batch_size * (loss.item())
-            total += current_batch_size
-            correct += (preds == y).float().sum()
-            # start_idx += current_batch_size
-
-            tepoch.set_postfix(
-                loss=sum_loss / total, accuracy=(correct / total).cpu().item()
-            )
-
-    all_labels = np.squeeze(np.array(all_labels).astype(int)).tolist()
-    all_preds = np.squeeze(np.array(all_preds).astype(int))
-    return sum_loss / total, correct / total, all_preds, all_labels

@@ -6,9 +6,8 @@ from ..data.spotify_tracks_genre import (
     preprocess_spotify_tracks_ds,
 )
 from ..data.stellar_ds import preprocess_stellar_ds
-import torch
 from .generalised_neural_network_model import GeneralisedNeuralNetworkModel
-from .training_functions import (
+from .dataset_training import (
     train_nn_airline,
     test_nn_airline,
     train_nn_credit_card,
@@ -18,15 +17,12 @@ from .training_functions import (
     train_nn_stellar,
     test_nn_stellar,
 )
-
-# from data.airline_passenger_satisfaction_train import read_data, data_preprocessing, AirlinePassengersDataset, ToTensor
-import pandas as pd
+import torch
 import numpy as np
 import plac
 import mlflow
 from skorch import NeuralNetClassifier
 from imblearn.over_sampling import SMOTE
-from typing import Optional
 from skorch.helper import SliceDict
 from sklearn.model_selection import cross_val_predict
 from cleanlab.rank import get_self_confidence_for_each_label
