@@ -71,11 +71,18 @@ class AirlinePassengersDataset(Dataset):
         self.X2 = X.drop(columns=embedded_col_names).copy().values.astype(np.float32)
         self.y = y.copy().values.astype(np.float32)
         self.id = np.arange(len(self.y))
+        self.difficulties = np.zeros(len(self.y), dtype=np.float32)
 
         self.transform = transform
 
     def __getitem__(self, index: int):
-        sample = self.id[index], self.X1[index], self.X2[index], self.y[index]
+        sample = (
+            self.id[index],
+            self.X1[index],
+            self.X2[index],
+            self.y[index],
+            self.difficulties[index],
+        )
 
         if self.transform:
             sample = self.transform(sample)

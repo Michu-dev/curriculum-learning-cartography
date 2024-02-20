@@ -4,12 +4,13 @@ from ..data.spotify_tracks_genre import SpotifyTracksDataset
 from ..data.stellar_ds import StellarDataset
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, WeightedRandomSampler
+from torch.utils.data import DataLoader, WeightedRandomSampler, Subset
 import numpy as np
 import pandas as pd
 from .generalised_neural_network_model import GeneralisedNeuralNetworkModel
 from torch.utils.data import DataLoader
 from skorch import NeuralNetClassifier
+from skorch.helper import SliceDict
 from .loss_function_relaxation import get_default_device
 from .auxiliary_functions import (
     get_optimizer,
@@ -21,10 +22,10 @@ from .auxiliary_functions import (
     DeviceDataLoader,
 )
 from sklearn.metrics import precision_score, recall_score, f1_score, roc_auc_score
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, cross_val_predict
 import mlflow
-import tensorflow as tf
 from pathlib import Path
+from cleanlab.rank import get_self_confidence_for_each_label
 
 
 def training_gnn_loop(
@@ -33,16 +34,13 @@ def training_gnn_loop(
     optimizer: torch.optim.Adam,
     train_dl: DeviceDataLoader,
     valid_dl: DeviceDataLoader,
-    skorch_model: NeuralNetClassifier,
     relaxed: bool = False,
     bin: bool = True,
 ) -> GeneralisedNeuralNetworkModel:
     for i in range(epochs):
-        loss = train_gnn_model(
-            model, optimizer, train_dl, i, skorch_model, relaxed=relaxed, bin=bin
-        )
+        loss = train_gnn_model(model, optimizer, train_dl, i, relaxed=relaxed, bin=bin)
         val_loss, acc, all_preds, all_labels = validate_gnn_loss(
-            model, valid_dl, i, skorch_model, relaxed=relaxed, bin=bin
+            model, valid_dl, i, relaxed=relaxed, bin=bin
         )
 
         mlflow.log_metric("train_loss", loss, step=i)
@@ -59,7 +57,7 @@ def training_gnn_loop(
 def train_nn_airline(
     train_df: pd.DataFrame,
     embedded_cols: dict,
-    skorch_model: NeuralNetClassifier,
+    rank_mode: str,
     relaxed: bool = False,
     epochs: int = 8,
     batch_size: int = 1000,
@@ -83,43 +81,88 @@ def train_nn_airline(
 
     device = get_default_device()
     model = GeneralisedNeuralNetworkModel(embedding_sizes, 7)
-    model_for_cartography = GeneralisedNeuralNetworkModel(embedding_sizes, 7)
+    if rank_mode == "confidence":
+        X1 = X_train.loc[:, embedded_col_names].copy().values.astype(np.int64)
+        X2 = X_train.drop(columns=embedded_col_names).copy().values.astype(np.float32)
+        y = y_train.copy().values.astype(np.float32)
+        X = {
+            "x_cat": X1,
+            "x_cont": X2,
+        }
+        skorch_model = NeuralNetClassifier(
+            GeneralisedNeuralNetworkModel(embedding_sizes, 7),
+            criterion=torch.nn.BCEWithLogitsLoss,
+            max_epochs=epochs,
+        )
+        X_skorch = SliceDict(**X)
+        pred_probs = cross_val_predict(
+            skorch_model,
+            X_skorch,
+            y,
+            ## Change to 5 later
+            cv=2,
+            method="predict_proba",
+        )
+        y_qualities = get_self_confidence_for_each_label(
+            y.astype(np.int64), pred_probs
+        ).squeeze()
+        difficulties = np.ones_like(y_qualities) - y_qualities
+        examples_order = np.argsort(y_qualities)
+        train_ds.difficulties = difficulties
+        train_ds = Subset(train_ds, indices=examples_order)
+    elif rank_mode == "cartography":
+
+        model_for_cartography = GeneralisedNeuralNetworkModel(embedding_sizes, 7)
+        to_device(model_for_cartography, device)
+        optim_for_cartography = get_optimizer(model_for_cartography, lr=lr, wd=wd)
+        loss_fn = torch.nn.BCEWithLogitsLoss()
+
+        path_to_save_training_dynamics = Path("./") / "airline_training_dynamics"
+
+        cartography_train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
+        cartography_train_dl = DeviceDataLoader(cartography_train_dl, device)
+
+        cartography_stats_df = data_cartography(
+            model_for_cartography,
+            cartography_train_dl,
+            loss_fn,
+            optim_for_cartography,
+            epochs,
+            path_to_save_training_dynamics,
+            binary=True,
+        )
+
+        if plot_map:
+            plot_cartography_map(
+                cartography_stats_df,
+                path_to_save_training_dynamics,
+                "Airline_passengers_satisfaction",
+                True,
+            )
+
+        y_qualities = np.ones(len(train_ds), dtype=np.float32)
+        for i, x in enumerate(train_ds):
+            y_qualities[i] = cartography_stats_df.loc[
+                cartography_stats_df["guid"] == x[0]
+            ]["confidence"]
+        examples_order = np.argsort(y_qualities)
+        difficulties = np.ones_like(y_qualities) - y_qualities
+        train_ds.difficulties = difficulties
+
+        train_ds = Subset(train_ds, indices=examples_order)
 
     to_device(model, device)
-    to_device(model_for_cartography, device)
-    optim_for_cartography = get_optimizer(model_for_cartography, lr=lr, wd=wd)
     optim = get_optimizer(model, lr=lr, wd=wd)
 
-    train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
+    if rank_mode:
+        train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=False)
+    else:
+        train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
     valid_dl = DataLoader(valid_ds, batch_size=batch_size, shuffle=True)
     train_dl = DeviceDataLoader(train_dl, device)
     valid_dl = DeviceDataLoader(valid_dl, device)
 
-    loss_fn = torch.nn.BCEWithLogitsLoss()
-
-    path_to_save_training_dynamics = Path("./") / "airline_training_dynamics"
-
-    cartography_stats_df = data_cartography(
-        model_for_cartography,
-        train_dl,
-        loss_fn,
-        optim_for_cartography,
-        epochs,
-        path_to_save_training_dynamics,
-        binary=True,
-    )
-
-    if plot_map:
-        plot_cartography_map(
-            cartography_stats_df,
-            path_to_save_training_dynamics,
-            "Airline_passengers_satisfaction",
-            True,
-        )
-
-    model = training_gnn_loop(
-        epochs, model, optim, train_dl, valid_dl, skorch_model, relaxed=relaxed
-    )
+    model = training_gnn_loop(epochs, model, optim, train_dl, valid_dl, relaxed=relaxed)
 
     return model
 
@@ -140,7 +183,7 @@ def test_nn_airline(
     preds = []
     total, correct = 0, 0
     with torch.no_grad():
-        for _, x1, x2, y in test_dl:
+        for _, x1, x2, y, _ in test_dl:
             current_batch_size = y.shape[0]
             out = model(x1, x2)
             preds.append(out)

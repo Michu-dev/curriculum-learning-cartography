@@ -26,15 +26,24 @@ import plac
 import mlflow
 from skorch import NeuralNetClassifier
 from imblearn.over_sampling import SMOTE
+from typing import Optional
+from skorch.helper import SliceDict
+from sklearn.model_selection import cross_val_predict
+from cleanlab.rank import get_self_confidence_for_each_label
 
 
 @plac.opt("dataset", "Dataset to use for NN model evaluation", str, "d")
-@plac.opt("relaxed", "Relax loss function flag", bool, "r")
+@plac.flg("relaxed", "Relax loss function flag", "r")
 @plac.opt("batch_size", "Batch size of the data", int, "b")
 @plac.opt("epochs", "Epochs number of training", int, "e")
 @plac.opt("lr", "Learning rate of optimizer", float, "l")
+@plac.flg("plot_map", "Flag whether to plot and save cartography map for dataset", "p")
 @plac.opt(
-    "plot_map", "Flag whether to plot and save cartography map for dataset", bool, "p"
+    "rank_mode",
+    "Mode in which the experiment is running: Cartography, Self-confidence, None",
+    str,
+    "m",
+    ["cartography", "confidence", None],
 )
 def main(
     dataset: str = "credit_card",
@@ -43,6 +52,7 @@ def main(
     epochs: int = 8,
     lr: float = 0.01,
     plot_map: bool = False,
+    rank_mode: str = None,
 ):
     mlflow.set_experiment("basic_ds_comparison_2")
     torch.manual_seed(0)
@@ -57,45 +67,11 @@ def main(
 
         if dataset == "airline_passenger_satisfaction":
             train_df, test_df, embedded_cols = preprocess_airline_data()
-            full_df = pd.concat([train_df, test_df], axis=0)
-            embedded_col_names = embedded_cols.keys()
-            X, y = full_df.iloc[:, :-1], full_df.iloc[:, [-1]]
-            X1 = X.loc[:, embedded_col_names].copy().values.astype(np.int64)
-            X2 = X.drop(columns=embedded_col_names).copy().values.astype(np.float32)
-            y = y.copy().values.astype(np.float32)
-
-            X = {
-                "x_cat": X1,
-                "x_cont": X2,
-            }
-
-            embedding_sizes = [
-                (n_categories + 1, min(50, (n_categories + 1) // 2))
-                for _, n_categories in embedded_cols.items()
-            ]
-            skorch_model = NeuralNetClassifier(
-                GeneralisedNeuralNetworkModel(embedding_sizes, 7),
-                criterion=torch.nn.BCEWithLogitsLoss,
-                max_epochs=epochs,
-            )
-            # X_skorch = SliceDict(**X)
-            # pred_probs = []
-            if relaxed:
-                # print(y.dtype)
-                # pred_probs = cross_val_predict(
-                #     skorch_model,
-                #     X_skorch,
-                #     y,
-                #     cv=2,
-                #     method="predict_proba",
-                # )
-                # print(pred_probs)
-                skorch_model.fit(X, y)
 
             model = train_nn_airline(
                 train_df,
                 embedded_cols,
-                skorch_model,
+                rank_mode,
                 relaxed=relaxed,
                 epochs=epochs,
                 batch_size=batch_size,
@@ -204,8 +180,19 @@ def main(
                 max_epochs=epochs,
             )
 
-            if relaxed:
-                skorch_model.fit(X, y)
+            X_skorch = SliceDict(**X)
+            pred_probs = []
+            if rank_mode == "confidence":
+                print(y.dtype)
+                pred_probs = cross_val_predict(
+                    skorch_model,
+                    X_skorch,
+                    y.astype(np.float64),
+                    cv=2,
+                    method="predict_proba",
+                )
+                print(pred_probs)
+                y_qualities = get_self_confidence_for_each_label(y, pred_probs)
 
             model = train_nn_stellar(
                 X_rem,

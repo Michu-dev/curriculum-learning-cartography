@@ -28,7 +28,7 @@ def relax_loss(loss: torch.Tensor, difficulty: np.ndarray, epoch: int):
     #     ).to(device)[:5]
     # )
     loss = loss.squeeze()
-    difficulty = difficulty.squeeze()
+    difficulty = difficulty.cpu().detach().numpy().squeeze()
 
     loss = torch.mean(
         loss * torch.tensor(1 / _lambda ** (difficulty / epoch)).to(device)
