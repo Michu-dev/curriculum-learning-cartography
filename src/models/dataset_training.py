@@ -13,7 +13,7 @@ from .train_run import (
 )
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader, Subset, Dataset
 import numpy as np
 import pandas as pd
 from torch.utils.data import DataLoader
@@ -31,6 +31,86 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s", level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+
+def get_self_confidence_rank_and_difficulties(
+    X: dict,
+    y: np.ndarray,
+    model: GeneralisedNeuralNetworkModel,
+    dataset: Dataset,
+    loss_fn,
+    epochs: int,
+) -> Subset:
+    skorch_model = NeuralNetClassifier(
+        model,
+        criterion=loss_fn,
+        max_epochs=epochs,
+    )
+    X_skorch = SliceDict(**X)
+    pred_probs = cross_val_predict(
+        skorch_model,
+        X_skorch,
+        y,
+        ## Change to 5 later
+        cv=2,
+        method="predict_proba",
+    )
+    y_qualities = get_self_confidence_for_each_label(
+        y.astype(np.int64), pred_probs
+    ).squeeze()
+    difficulties = np.ones_like(y_qualities) - y_qualities
+    examples_order = np.argsort(y_qualities)
+    dataset.difficulties = difficulties
+    dataset = Subset(dataset, indices=examples_order)
+    return dataset
+
+
+def get_cartography_rank_and_difficulties(
+    model: GeneralisedNeuralNetworkModel,
+    path: Path,
+    dataset: Dataset,
+    loss_fn,
+    plot_flag: bool,
+    plot_title: str,
+    binary: bool,
+    epochs: int,
+    device: torch.device,
+    batch_size: int,
+    lr: float,
+    wd: float,
+) -> Subset:
+    to_device(model, device)
+    optim_for_cartography = get_optimizer(model, lr=lr, wd=wd)
+    cartography_train_dl = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    cartography_train_dl = DeviceDataLoader(cartography_train_dl, device)
+    cartography_stats_df = data_cartography(
+        model,
+        cartography_train_dl,
+        loss_fn,
+        optim_for_cartography,
+        epochs,
+        path,
+        binary=binary,
+    )
+    if plot_flag:
+        plot_cartography_map(
+            cartography_stats_df,
+            path,
+            plot_title,
+            True,
+        )
+
+    y_qualities = np.ones(len(dataset), dtype=np.float32)
+    for i, x in enumerate(dataset):
+        y_qualities[i] = cartography_stats_df.loc[cartography_stats_df["guid"] == x[0]][
+            "confidence"
+        ]
+    examples_order = np.argsort(y_qualities)
+    difficulties = np.ones_like(y_qualities) - y_qualities
+    dataset.difficulties = difficulties
+
+    dataset = Subset(dataset, indices=examples_order)
+    return dataset
 
 
 def train_nn_airline(
@@ -68,67 +148,32 @@ def train_nn_airline(
             "x_cat": X1,
             "x_cont": X2,
         }
-        skorch_model = NeuralNetClassifier(
-            GeneralisedNeuralNetworkModel(embedding_sizes, 7),
-            criterion=torch.nn.BCEWithLogitsLoss,
-            max_epochs=epochs,
-        )
-        X_skorch = SliceDict(**X)
-        pred_probs = cross_val_predict(
-            skorch_model,
-            X_skorch,
+        train_ds = get_self_confidence_rank_and_difficulties(
+            X,
             y,
-            ## Change to 5 later
-            cv=2,
-            method="predict_proba",
+            GeneralisedNeuralNetworkModel(embedding_sizes, 7),
+            train_ds,
+            torch.nn.BCEWithLogitsLoss,
+            epochs,
         )
-        y_qualities = get_self_confidence_for_each_label(
-            y.astype(np.int64), pred_probs
-        ).squeeze()
-        difficulties = np.ones_like(y_qualities) - y_qualities
-        examples_order = np.argsort(y_qualities)
-        train_ds.difficulties = difficulties
-        train_ds = Subset(train_ds, indices=examples_order)
     elif rank_mode == "cartography":
-
-        model_for_cartography = GeneralisedNeuralNetworkModel(embedding_sizes, 7)
-        to_device(model_for_cartography, device)
-        optim_for_cartography = get_optimizer(model_for_cartography, lr=lr, wd=wd)
         loss_fn = torch.nn.BCEWithLogitsLoss()
-
         path_to_save_training_dynamics = Path("./") / "airline_training_dynamics"
 
-        cartography_train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
-        cartography_train_dl = DeviceDataLoader(cartography_train_dl, device)
-
-        cartography_stats_df = data_cartography(
-            model_for_cartography,
-            cartography_train_dl,
-            loss_fn,
-            optim_for_cartography,
-            epochs,
+        train_ds = get_cartography_rank_and_difficulties(
+            GeneralisedNeuralNetworkModel(embedding_sizes, 7),
             path_to_save_training_dynamics,
-            binary=True,
+            train_ds,
+            loss_fn,
+            plot_map,
+            "Airline_passengers_satisfaction",
+            True,
+            epochs,
+            device,
+            batch_size,
+            lr,
+            wd,
         )
-
-        if plot_map:
-            plot_cartography_map(
-                cartography_stats_df,
-                path_to_save_training_dynamics,
-                "Airline_passengers_satisfaction",
-                True,
-            )
-
-        y_qualities = np.ones(len(train_ds), dtype=np.float32)
-        for i, x in enumerate(train_ds):
-            y_qualities[i] = cartography_stats_df.loc[
-                cartography_stats_df["guid"] == x[0]
-            ]["confidence"]
-        examples_order = np.argsort(y_qualities)
-        difficulties = np.ones_like(y_qualities) - y_qualities
-        train_ds.difficulties = difficulties
-
-        train_ds = Subset(train_ds, indices=examples_order)
 
     to_device(model, device)
     optim = get_optimizer(model, lr=lr, wd=wd)
@@ -228,68 +273,34 @@ def train_nn_spotify_tracks(
             "x_cont": X2,
         }
         n_cont = len(X_train.columns) - len(embedded_cols)
-        skorch_model = NeuralNetClassifier(
-            GeneralisedNeuralNetworkModel(embedding_sizes, n_cont, n_class=114),
-            criterion=torch.nn.CrossEntropyLoss,
-            max_epochs=epochs,
-        )
-        X_skorch = SliceDict(**X)
-        pred_probs = cross_val_predict(
-            skorch_model,
-            X_skorch,
+        train_ds = get_self_confidence_rank_and_difficulties(
+            X,
             y,
-            ## Change to 5 later
-            cv=2,
-            method="predict_proba",
+            GeneralisedNeuralNetworkModel(embedding_sizes, n_cont, n_class=114),
+            train_ds,
+            torch.nn.CrossEntropyLoss,
+            epochs,
         )
-        y_qualities = get_self_confidence_for_each_label(
-            y.astype(np.int64), pred_probs
-        ).squeeze()
-        difficulties = np.ones_like(y_qualities) - y_qualities
-        examples_order = np.argsort(y_qualities)
-        train_ds.difficulties = difficulties
-        train_ds = Subset(train_ds, indices=examples_order)
     elif rank_mode == "cartography":
-        model_for_cartography = GeneralisedNeuralNetworkModel(
-            embedding_sizes, n_cont, n_class=114
-        )
-        to_device(model_for_cartography, device)
-        optim_for_cartography = get_optimizer(model_for_cartography, lr=lr, wd=wd)
         loss_fn = torch.nn.CrossEntropyLoss()
-
         path_to_save_training_dynamics = (
             Path("./") / "spotify_tracks_genre_training_dynamics"
         )
-        cartography_train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
-        cartography_train_dl = DeviceDataLoader(cartography_train_dl, device)
 
-        cartography_stats_df = data_cartography(
-            model_for_cartography,
-            cartography_train_dl,
-            loss_fn,
-            optim_for_cartography,
-            epochs,
+        train_ds = get_cartography_rank_and_difficulties(
+            GeneralisedNeuralNetworkModel(embedding_sizes, n_cont, n_class=114),
             path_to_save_training_dynamics,
-            binary=False,
+            train_ds,
+            loss_fn,
+            plot_map,
+            "Spotify_tracks_genre",
+            False,
+            epochs,
+            device,
+            batch_size,
+            lr,
+            wd,
         )
-
-        if plot_map:
-            plot_cartography_map(
-                cartography_stats_df,
-                path_to_save_training_dynamics,
-                "Spotify_tracks_genre",
-                True,
-            )
-
-        y_qualities = np.ones(len(train_ds), dtype=np.float32)
-        for i, x in enumerate(train_ds):
-            y_qualities[i] = cartography_stats_df.loc[
-                cartography_stats_df["guid"] == x[0]
-            ]["confidence"]
-        examples_order = np.argsort(y_qualities)
-        difficulties = np.ones_like(y_qualities) - y_qualities
-        train_ds.difficulties = difficulties
-        train_ds = Subset(train_ds, indices=examples_order)
 
     to_device(model, device)
     optim = get_optimizer(model, lr=lr, wd=wd)
@@ -396,66 +407,32 @@ def train_nn_credit_card(
             "x_cat": np.zeros(X.shape[0], dtype=np.float32),
             "x_cont": X,
         }
-        skorch_model = NeuralNetClassifier(
-            GeneralisedNeuralNetworkModel([], len(X_train[0])),
-            criterion=torch.nn.BCEWithLogitsLoss,
-            max_epochs=epochs,
-        )
-        X_skorch = SliceDict(**X)
-        pred_probs = cross_val_predict(
-            skorch_model,
-            X_skorch,
+        train_ds = get_self_confidence_rank_and_difficulties(
+            X,
             y,
-            ## Change to 5 later
-            cv=2,
-            method="predict_proba",
+            GeneralisedNeuralNetworkModel([], len(X_train[0])),
+            train_ds,
+            torch.nn.BCEWithLogitsLoss,
+            epochs,
         )
-        y_qualities = get_self_confidence_for_each_label(
-            y.astype(np.int64), pred_probs
-        ).squeeze()
-        difficulties = np.ones_like(y_qualities) - y_qualities
-        examples_order = np.argsort(y_qualities)
-        train_ds.difficulties = difficulties
-        train_ds = Subset(train_ds, indices=examples_order)
     elif rank_mode == "cartography":
-        model_for_cartography = GeneralisedNeuralNetworkModel([], len(X_train[0]))
-        to_device(model_for_cartography, device)
-        optim_for_cartography = get_optimizer(model_for_cartography, lr=lr, wd=wd)
         loss_fn = torch.nn.BCEWithLogitsLoss()
-
         path_to_save_training_dynamics = Path("./") / "card_fraud_training_dynamics"
 
-        cartography_train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
-        cartography_train_dl = DeviceDataLoader(cartography_train_dl, device)
-
-        cartography_stats_df = data_cartography(
-            model_for_cartography,
-            cartography_train_dl,
-            loss_fn,
-            optim_for_cartography,
-            epochs,
+        train_ds = get_cartography_rank_and_difficulties(
+            GeneralisedNeuralNetworkModel([], len(X_train[0])),
             path_to_save_training_dynamics,
-            binary=True,
+            train_ds,
+            loss_fn,
+            plot_map,
+            "Credit_card_fraud_detection",
+            True,
+            epochs,
+            device,
+            batch_size,
+            lr,
+            wd,
         )
-        if plot_map:
-            plot_cartography_map(
-                cartography_stats_df,
-                path_to_save_training_dynamics,
-                "Credit_card_fraud_detection",
-                True,
-            )
-        y_qualities = np.ones(len(train_ds), dtype=np.float32)
-
-        # Cartography difficulties to implement
-        for i, x in enumerate(train_ds):
-            y_qualities[i] = cartography_stats_df.loc[
-                cartography_stats_df["guid"] == x[0]
-            ]["confidence"]
-
-        examples_order = np.argsort(y_qualities)
-        difficulties = np.ones_like(y_qualities) - y_qualities
-        train_ds.difficulties = difficulties
-        train_ds = Subset(train_ds, indices=examples_order)
 
     to_device(model, device)
     optim = get_optimizer(model, lr=lr, wd=wd)
@@ -562,62 +539,32 @@ def train_nn_stellar(
             "x_cont": X2,
         }
         n_cont = len(X_train.columns) - len(embedded_cols)
-        skorch_model = NeuralNetClassifier(
-            GeneralisedNeuralNetworkModel(embedding_sizes, n_cont, n_class=3),
-            criterion=torch.nn.CrossEntropyLoss,
-            max_epochs=epochs,
-        )
-        X_skorch = SliceDict(**X)
-        pred_probs = cross_val_predict(
-            skorch_model,
-            X_skorch,
+        train_ds = get_self_confidence_rank_and_difficulties(
+            X,
             y,
-            ## Change to 5 later
-            cv=2,
-            method="predict_proba",
+            GeneralisedNeuralNetworkModel(embedding_sizes, n_cont, n_class=3),
+            train_ds,
+            torch.nn.CrossEntropyLoss,
+            epochs,
         )
-        y_qualities = get_self_confidence_for_each_label(y, pred_probs).squeeze()
-        difficulties = np.ones_like(y_qualities) - y_qualities
-        examples_order = np.argsort(y_qualities)
-        train_ds.difficulties = difficulties
-        train_ds = Subset(train_ds, indices=examples_order)
     elif rank_mode == "cartography":
-        model_for_cartography = GeneralisedNeuralNetworkModel(
-            embedding_sizes, n_cont, n_class=3
-        )
-        to_device(model_for_cartography, device)
-        optim_for_cartography = get_optimizer(model_for_cartography, lr=lr, wd=wd)
         loss_fn = torch.nn.CrossEntropyLoss()
-
         path_to_save_training_dynamics = Path("./") / "stellar_training_dynamics"
 
-        cartography_train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
-        cartography_train_dl = DeviceDataLoader(cartography_train_dl, device)
-
-        cartography_stats_df = data_cartography(
-            model_for_cartography,
-            cartography_train_dl,
-            loss_fn,
-            optim_for_cartography,
-            epochs,
+        train_ds = get_cartography_rank_and_difficulties(
+            GeneralisedNeuralNetworkModel(embedding_sizes, n_cont, n_class=3),
             path_to_save_training_dynamics,
-            binary=False,
+            train_ds,
+            loss_fn,
+            plot_map,
+            "Stellar",
+            False,
+            epochs,
+            device,
+            batch_size,
+            lr,
+            wd,
         )
-
-        if plot_map:
-            plot_cartography_map(
-                cartography_stats_df, path_to_save_training_dynamics, "Stellar", True
-            )
-        y_qualities = np.ones(len(train_ds), dtype=np.float32)
-        for i, x in enumerate(train_ds):
-            y_qualities[i] = cartography_stats_df.loc[
-                cartography_stats_df["guid"] == x[0]
-            ]["confidence"]
-
-        examples_order = np.argsort(y_qualities)
-        difficulties = np.ones_like(y_qualities) - y_qualities
-        train_ds.difficulties = difficulties
-        train_ds = Subset(train_ds, indices=examples_order)
 
     to_device(model, device)
     optim = get_optimizer(model, lr=lr, wd=wd)
