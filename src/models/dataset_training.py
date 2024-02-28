@@ -21,11 +21,17 @@ from skorch import NeuralNetClassifier
 from skorch.helper import SliceDict
 from sklearn.metrics import precision_score, recall_score, f1_score
 from sklearn.model_selection import train_test_split, cross_val_predict
+from sklearn.preprocessing import StandardScaler
+import umap
+from sklearn.cluster import KMeans
 import mlflow
 from pathlib import Path
 from cleanlab.rank import get_self_confidence_for_each_label
 from imblearn.over_sampling import SMOTE
 import logging
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.preprocessing import StandardScaler
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s", level=logging.INFO
@@ -100,11 +106,43 @@ def get_cartography_rank_and_difficulties(
             True,
         )
 
+    main_label, other_metric, cluster_num = "variability", "confidence", "labels"
     y_qualities = np.ones(len(dataset), dtype=np.float32)
+    x_train = cartography_stats_df[[main_label, other_metric]].values
+    reducer = umap.UMAP(n_components=1, random_state=42)
     for i, x in enumerate(dataset):
         y_qualities[i] = cartography_stats_df.loc[cartography_stats_df["guid"] == x[0]][
-            "confidence"
+            other_metric
         ]
+    # klastrowanie -> przypisanie do klas easy-to-learn/ambiguous/hard-to-learn
+    # Redukcja wymiarów -> UMAP 2D - 1D z zachowaniem powyzszego podzialu
+    fig, ax0 = plt.subplots(1, 1, figsize=(10, 8))
+    X_train_norm = StandardScaler().fit_transform(x_train)
+    kmeans_labels = KMeans(n_clusters=3, random_state=0, n_init="auto").fit_predict(
+        X_train_norm
+    )
+    cartography_stats_df["labels"] = kmeans_labels
+    pal = sns.diverging_palette(260, 15, n=3, sep=10, center="dark")
+
+    plot = sns.scatterplot(
+        x=main_label,
+        y=other_metric,
+        ax=ax0,
+        data=cartography_stats_df,
+        hue=cluster_num,
+        palette=pal,
+        style=cluster_num,
+        s=30,
+    )
+    plot.set_xlabel("variability")
+    plot.set_ylabel("confidence")
+    fig.tight_layout()
+    fig.savefig("./plot.pdf")
+    embedding = reducer.fit_transform(X_train_norm)
+    # print(embedding)
+    cartography_stats_df["embedding"] = embedding
+    # print(cartography_stats_df.groupby(["labels"]).agg({"embedding": [min, max]}))
+
     examples_order = np.argsort(y_qualities)
     difficulties = np.ones_like(y_qualities) - y_qualities
     dataset.difficulties = difficulties
