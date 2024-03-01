@@ -31,6 +31,7 @@ from imblearn.over_sampling import SMOTE
 import logging
 import matplotlib.pyplot as plt
 import seaborn as sns
+from sklearn.metrics import adjusted_mutual_info_score, adjusted_rand_score
 from sklearn.preprocessing import StandardScaler
 
 logging.basicConfig(
@@ -98,6 +99,14 @@ def get_cartography_rank_and_difficulties(
         path,
         binary=binary,
     )
+    # clustering -> assign examples to classes: easy-to-learn/ambiguous/hard-to-learn
+    # dimensionality reduction -> UMAP 2D -> 1D with higher classification maintenance | normalized weights of 2D features
+    main_label, other_metric, cluster_num = "variability", "confidence", "labels"
+    x_train = cartography_stats_df[[main_label, other_metric]]
+    kmeans_labels = KMeans(n_clusters=3, random_state=0, n_init="auto").fit_predict(
+        x_train
+    )
+    cartography_stats_df["labels"] = kmeans_labels
     if plot_flag:
         plot_cartography_map(
             cartography_stats_df,
@@ -105,43 +114,48 @@ def get_cartography_rank_and_difficulties(
             plot_title,
             True,
         )
+        # Plot clustering results
+        sns.set(style="whitegrid", font_scale=1.6, font="Georgia", context="paper")
+        fig, ax0 = plt.subplots(1, 1, figsize=(10, 8))
+        pal = sns.diverging_palette(260, 15, n=3, sep=10, center="dark")
+        plot = sns.scatterplot(
+            x=main_label,
+            y=other_metric,
+            ax=ax0,
+            data=cartography_stats_df,
+            hue=cluster_num,
+            palette=pal,
+            style=cluster_num,
+            s=30,
+        )
+        plot.set_xlabel("variability")
+        plot.set_ylabel("confidence")
+        plot.set_title(f"{plot_title}-Cartography K-Means result", fontsize=17)
+        path = path / "clustering_results"
+        if not path.exists():
+            path.mkdir(parents=True, exist_ok=True)
+        fig.tight_layout()
+        fig.savefig(f"{path}/{plot_title}.pdf")
 
-    main_label, other_metric, cluster_num = "variability", "confidence", "labels"
     y_qualities = np.ones(len(dataset), dtype=np.float32)
-    x_train = cartography_stats_df[[main_label, other_metric]].values
-    reducer = umap.UMAP(n_components=1, random_state=42)
     for i, x in enumerate(dataset):
-        y_qualities[i] = cartography_stats_df.loc[cartography_stats_df["guid"] == x[0]][
-            other_metric
-        ]
-    # klastrowanie -> przypisanie do klas easy-to-learn/ambiguous/hard-to-learn
-    # Redukcja wymiarów -> UMAP 2D - 1D z zachowaniem powyzszego podzialu
-    fig, ax0 = plt.subplots(1, 1, figsize=(10, 8))
-    X_train_norm = StandardScaler().fit_transform(x_train)
-    kmeans_labels = KMeans(n_clusters=3, random_state=0, n_init="auto").fit_predict(
-        X_train_norm
-    )
-    cartography_stats_df["labels"] = kmeans_labels
-    pal = sns.diverging_palette(260, 15, n=3, sep=10, center="dark")
+        curr_row = cartography_stats_df.loc[cartography_stats_df["guid"] == x[0]]
+        y_qualities[i] = (curr_row[other_metric] + 2 * curr_row[main_label]) / 3.0
 
-    plot = sns.scatterplot(
-        x=main_label,
-        y=other_metric,
-        ax=ax0,
-        data=cartography_stats_df,
-        hue=cluster_num,
-        palette=pal,
-        style=cluster_num,
-        s=30,
+    # embedding = umap.UMAP(n_components=1, random_state=42).fit_transform(x_train)
+    # embedding = StandardScaler().fit_transform(embedding)
+
+    reduced_kmeans_labels = KMeans(
+        n_clusters=3, random_state=0, n_init="auto"
+    ).fit_predict(y_qualities.reshape(-1, 1))
+    # y_qualities = embedding.reshape(-1)
+
+    logger.info(
+        f"Adjusted_rand_score: {adjusted_rand_score(kmeans_labels, reduced_kmeans_labels)}"
     )
-    plot.set_xlabel("variability")
-    plot.set_ylabel("confidence")
-    fig.tight_layout()
-    fig.savefig("./plot.pdf")
-    embedding = reducer.fit_transform(X_train_norm)
-    # print(embedding)
-    cartography_stats_df["embedding"] = embedding
-    # print(cartography_stats_df.groupby(["labels"]).agg({"embedding": [min, max]}))
+    logger.info(
+        f"Adjusted mutual information: {adjusted_mutual_info_score(kmeans_labels, reduced_kmeans_labels)}"
+    )
 
     examples_order = np.argsort(y_qualities)
     difficulties = np.ones_like(y_qualities) - y_qualities

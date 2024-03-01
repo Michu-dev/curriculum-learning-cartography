@@ -127,6 +127,7 @@ def main(
         mlflow.log_param("epochs", epochs)
         mlflow.log_param("learning_rate", lr)
         mlflow.log_param("relaxed", relaxed)
+        mlflow.log_param("ranking_mode", rank_mode)
 
         mlflow.set_tag("Purpose", "Initial comparison")
         mlflow.pytorch.log_model(model, "model")
