@@ -44,7 +44,7 @@ def main(
     plot_map: bool = False,
     rank_mode: str = None,
 ):
-    mlflow.set_experiment("basic_ds_comparison_2")
+    mlflow.set_experiment("rank_and_relax_comparison")
     torch.manual_seed(0)
     np.random.seed(0)
     torch.use_deterministic_algorithms(True)

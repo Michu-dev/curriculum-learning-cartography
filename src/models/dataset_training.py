@@ -138,17 +138,17 @@ def get_cartography_rank_and_difficulties(
         fig.savefig(f"{path}/{plot_title}.pdf")
 
     y_qualities = np.ones(len(dataset), dtype=np.float32)
-    for i, x in enumerate(dataset):
-        curr_row = cartography_stats_df.loc[cartography_stats_df["guid"] == x[0]]
-        y_qualities[i] = (curr_row[other_metric] + 2 * curr_row[main_label]) / 3.0
+    # for i, x in enumerate(dataset):
+    #     curr_row = cartography_stats_df.loc[cartography_stats_df["guid"] == x[0]]
+    #     y_qualities[i] = (curr_row[other_metric] + 2 * curr_row[main_label]) / 3.0
 
-    # embedding = umap.UMAP(n_components=1, random_state=42).fit_transform(x_train)
-    # embedding = StandardScaler().fit_transform(embedding)
+    embedding = umap.UMAP(n_components=1, random_state=42).fit_transform(x_train)
+    embedding = StandardScaler().fit_transform(embedding)
 
     reduced_kmeans_labels = KMeans(
         n_clusters=3, random_state=0, n_init="auto"
-    ).fit_predict(y_qualities.reshape(-1, 1))
-    # y_qualities = embedding.reshape(-1)
+    ).fit_predict(embedding)
+    y_qualities = embedding.reshape(-1)
 
     logger.info(
         f"Adjusted_rand_score: {adjusted_rand_score(kmeans_labels, reduced_kmeans_labels)}"
