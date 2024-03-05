@@ -66,8 +66,9 @@ def get_self_confidence_rank_and_difficulties(
         y.astype(np.int64), pred_probs
     ).squeeze()
     difficulties = np.ones_like(y_qualities) - y_qualities
-    examples_order = np.argsort(y_qualities)
+    examples_order = np.argsort(difficulties)
     dataset.difficulties = difficulties
+
     dataset = Subset(dataset, indices=examples_order)
     return dataset
 
@@ -158,8 +159,7 @@ def get_cartography_rank_and_difficulties(
     )
 
     examples_order = np.argsort(y_qualities)
-    difficulties = np.ones_like(y_qualities) - y_qualities
-    dataset.difficulties = difficulties
+    dataset.difficulties = y_qualities
 
     dataset = Subset(dataset, indices=examples_order)
     return dataset
