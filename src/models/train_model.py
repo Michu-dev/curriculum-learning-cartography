@@ -44,7 +44,7 @@ def main(
     plot_map: bool = False,
     rank_mode: str = None,
 ):
-    mlflow.set_experiment("rank_and_relax_comparison")
+    mlflow.set_experiment("methods_comparison")
     torch.manual_seed(0)
     np.random.seed(0)
     torch.use_deterministic_algorithms(True)
@@ -52,7 +52,7 @@ def main(
         mlflow.set_tracking_uri("http://127.0.0.1:5000")
         mlflow.set_tag(
             "mlflow.runName",
-            f"Dataset: {dataset}, batch: {batch_size}, epochs: {epochs}, relaxed: {relaxed}",
+            f"{dataset}, rank_mode: {rank_mode}, relaxed: {relaxed}",
         )
 
         if dataset == "airline_passenger_satisfaction":

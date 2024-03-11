@@ -21,7 +21,7 @@ from skorch import NeuralNetClassifier
 from skorch.helper import SliceDict
 from sklearn.metrics import precision_score, recall_score, f1_score
 from sklearn.model_selection import train_test_split, cross_val_predict
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import MinMaxScaler
 import umap
 from sklearn.cluster import KMeans
 import mlflow
@@ -32,7 +32,6 @@ import logging
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import adjusted_mutual_info_score, adjusted_rand_score
-from sklearn.preprocessing import StandardScaler
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s", level=logging.INFO
@@ -58,8 +57,7 @@ def get_self_confidence_rank_and_difficulties(
         skorch_model,
         X_skorch,
         y,
-        ## Change to 5 later
-        cv=2,
+        cv=5,
         method="predict_proba",
     )
     y_qualities = get_self_confidence_for_each_label(
@@ -144,7 +142,7 @@ def get_cartography_rank_and_difficulties(
     #     y_qualities[i] = (curr_row[other_metric] + 2 * curr_row[main_label]) / 3.0
 
     embedding = umap.UMAP(n_components=1, random_state=42).fit_transform(x_train)
-    embedding = StandardScaler().fit_transform(embedding)
+    embedding = MinMaxScaler().fit_transform(embedding)
 
     reduced_kmeans_labels = KMeans(
         n_clusters=3, random_state=0, n_init="auto"

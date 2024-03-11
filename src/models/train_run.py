@@ -8,6 +8,7 @@ from tqdm import tqdm
 from .loss_function_relaxation import relax_loss
 import mlflow
 from sklearn.metrics import roc_auc_score
+from typing import Tuple
 
 
 def to_device(data, device):
@@ -114,7 +115,7 @@ def validate_gnn_loss(
     epoch: int,
     relaxed: bool = False,
     bin: bool = True,
-) -> tuple[float, float, list, list]:
+) -> Tuple[float, float, list, list]:
     model.eval()
     total = 0
     sum_loss = 0
