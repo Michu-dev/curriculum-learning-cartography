@@ -76,6 +76,7 @@ def get_cartography_rank_and_difficulties(
     path: Path,
     dataset: Dataset,
     loss_fn,
+    relaxed: bool,
     plot_flag: bool,
     plot_title: str,
     binary: bool,
@@ -102,7 +103,8 @@ def get_cartography_rank_and_difficulties(
     # dimensionality reduction -> UMAP 2D -> 1D with higher classification maintenance | normalized weights of 2D features
     main_label, other_metric, cluster_num = "variability", "confidence", "labels"
     x_train = cartography_stats_df[[main_label, other_metric]]
-    kmeans_labels = KMeans(n_clusters=3, random_state=0, n_init="auto").fit_predict(
+    x_train[main_label] = 2 * x_train[main_label]
+    kmeans_labels = KMeans(n_clusters=3, random_state=42, n_init="auto").fit_predict(
         x_train
     )
     cartography_stats_df["labels"] = kmeans_labels
@@ -137,17 +139,24 @@ def get_cartography_rank_and_difficulties(
         fig.savefig(f"{path}/{plot_title}.pdf")
 
     y_qualities = np.ones(len(dataset), dtype=np.float32)
-    # for i, x in enumerate(dataset):
-    #     curr_row = cartography_stats_df.loc[cartography_stats_df["guid"] == x[0]]
-    #     y_qualities[i] = (curr_row[other_metric] + 2 * curr_row[main_label]) / 3.0
 
-    embedding = umap.UMAP(n_components=1, random_state=42).fit_transform(x_train)
+    embedding = umap.UMAP(n_components=1, random_state=42).fit_transform(
+        x_train, kmeans_labels
+    )
+
+    # Interpolation mode - to consider
+    # embedding = (x_train[other_metric] + x_train[main_label]).values.reshape(-1, 1)
     embedding = MinMaxScaler().fit_transform(embedding)
 
     reduced_kmeans_labels = KMeans(
         n_clusters=3, random_state=0, n_init="auto"
     ).fit_predict(embedding)
-    y_qualities = embedding.reshape(-1)
+    embedding = embedding.reshape(-1)
+
+    # Loop matching distributed training dynamics values with dataset
+    for i, x in enumerate(dataset):
+        curr_row_idx = cartography_stats_df.index[cartography_stats_df["guid"] == x[0]]
+        y_qualities[i] = embedding[curr_row_idx]
 
     logger.info(
         f"Adjusted_rand_score: {adjusted_rand_score(kmeans_labels, reduced_kmeans_labels)}"
@@ -156,10 +165,12 @@ def get_cartography_rank_and_difficulties(
         f"Adjusted mutual information: {adjusted_mutual_info_score(kmeans_labels, reduced_kmeans_labels)}"
     )
 
-    examples_order = np.argsort(y_qualities)
+    examples_order = np.argsort(y_qualities)[::-1]
     dataset.difficulties = y_qualities
 
-    dataset = Subset(dataset, indices=examples_order)
+    # To consider
+    if not relaxed:
+        dataset = Subset(dataset, indices=examples_order)
     return dataset
 
 
@@ -215,6 +226,7 @@ def train_nn_airline(
             path_to_save_training_dynamics,
             train_ds,
             loss_fn,
+            relaxed,
             plot_map,
             "Airline_passengers_satisfaction",
             True,
@@ -342,6 +354,7 @@ def train_nn_spotify_tracks(
             path_to_save_training_dynamics,
             train_ds,
             loss_fn,
+            relaxed,
             plot_map,
             "Spotify_tracks_genre",
             False,
@@ -474,6 +487,7 @@ def train_nn_credit_card(
             path_to_save_training_dynamics,
             train_ds,
             loss_fn,
+            relaxed,
             plot_map,
             "Credit_card_fraud_detection",
             True,
@@ -606,6 +620,7 @@ def train_nn_stellar(
             path_to_save_training_dynamics,
             train_ds,
             loss_fn,
+            relaxed,
             plot_map,
             "Stellar",
             False,
