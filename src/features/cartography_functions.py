@@ -1,5 +1,5 @@
 from ..models.generalised_neural_network_model import GeneralisedNeuralNetworkModel
-from ..models.train_run import DeviceDataLoader
+from ..train_run import DeviceDataLoader
 import torch
 import numpy as np
 import pandas as pd

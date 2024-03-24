@@ -1,10 +1,10 @@
-from ..data.airline_passenger_satisfaction_train import AirlinePassengersDataset
-from ..data.credit_card_fraud import CreditCardDataset
-from ..data.spotify_tracks_genre import SpotifyTracksDataset
-from ..data.stellar_ds import StellarDataset
-from ..features.cartography_functions import data_cartography, plot_cartography_map
-from .generalised_neural_network_model import GeneralisedNeuralNetworkModel
-from .loss_function_relaxation import get_default_device
+from .data.airline_passenger_satisfaction_train import AirlinePassengersDataset
+from .data.credit_card_fraud import CreditCardDataset
+from .data.spotify_tracks_genre import SpotifyTracksDataset
+from .data.stellar_ds import StellarDataset
+from .features.cartography_functions import data_cartography, plot_cartography_map
+from .models.generalised_neural_network_model import GeneralisedNeuralNetworkModel
+from .features.loss_function_relaxation import get_default_device
 from .train_run import (
     get_optimizer,
     to_device,
@@ -44,7 +44,6 @@ def get_self_confidence_rank_and_difficulties(
     y: np.ndarray,
     model: GeneralisedNeuralNetworkModel,
     dataset: Dataset,
-    relaxed: bool,
     loss_fn,
     epochs: int,
     batch_size: int,
@@ -72,8 +71,8 @@ def get_self_confidence_rank_and_difficulties(
     examples_order = np.argsort(difficulties)
     dataset.difficulties = difficulties
 
-    if not relaxed:
-        dataset = Subset(dataset, indices=examples_order)
+    # if not relaxed:
+    dataset = Subset(dataset, indices=examples_order)
     return dataset
 
 
@@ -82,7 +81,6 @@ def get_cartography_rank_and_difficulties(
     path: Path,
     dataset: Dataset,
     loss_fn,
-    relaxed: bool,
     plot_flag: bool,
     plot_title: str,
     binary: bool,
@@ -175,8 +173,8 @@ def get_cartography_rank_and_difficulties(
     dataset.difficulties = y_qualities
 
     # To consider
-    if not relaxed:
-        dataset = Subset(dataset, indices=examples_order)
+    # if not relaxed:
+    dataset = Subset(dataset, indices=examples_order)
     return dataset
 
 
@@ -220,7 +218,6 @@ def train_nn_airline(
             y,
             GeneralisedNeuralNetworkModel(embedding_sizes, 7),
             train_ds,
-            relaxed,
             torch.nn.BCEWithLogitsLoss,
             epochs,
             batch_size,
@@ -235,7 +232,6 @@ def train_nn_airline(
             path_to_save_training_dynamics,
             train_ds,
             loss_fn,
-            relaxed,
             plot_map,
             "Airline_passengers_satisfaction",
             True,
@@ -349,7 +345,6 @@ def train_nn_spotify_tracks(
             y,
             GeneralisedNeuralNetworkModel(embedding_sizes, n_cont, n_class=114),
             train_ds,
-            relaxed,
             torch.nn.CrossEntropyLoss,
             epochs,
             batch_size,
@@ -366,7 +361,6 @@ def train_nn_spotify_tracks(
             path_to_save_training_dynamics,
             train_ds,
             loss_fn,
-            relaxed,
             plot_map,
             "Spotify_tracks_genre",
             False,
@@ -487,7 +481,6 @@ def train_nn_credit_card(
             y,
             GeneralisedNeuralNetworkModel([], len(X_train[0])),
             train_ds,
-            relaxed,
             torch.nn.BCEWithLogitsLoss,
             epochs,
             batch_size,
@@ -502,7 +495,6 @@ def train_nn_credit_card(
             path_to_save_training_dynamics,
             train_ds,
             loss_fn,
-            relaxed,
             plot_map,
             "Credit_card_fraud_detection",
             True,
@@ -623,7 +615,6 @@ def train_nn_stellar(
             y,
             GeneralisedNeuralNetworkModel(embedding_sizes, n_cont, n_class=3),
             train_ds,
-            relaxed,
             torch.nn.CrossEntropyLoss,
             epochs,
             batch_size,
@@ -638,7 +629,6 @@ def train_nn_stellar(
             path_to_save_training_dynamics,
             train_ds,
             loss_fn,
-            relaxed,
             plot_map,
             "Stellar",
             False,

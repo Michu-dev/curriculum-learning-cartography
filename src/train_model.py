@@ -1,11 +1,11 @@
-from ..data.airline_passenger_satisfaction_train import (
+from .data.airline_passenger_satisfaction_train import (
     preprocess_airline_data,
 )
-from ..data.credit_card_fraud import preprocess_credit_card_ds
-from ..data.spotify_tracks_genre import (
+from .data.credit_card_fraud import preprocess_credit_card_ds
+from .data.spotify_tracks_genre import (
     preprocess_spotify_tracks_ds,
 )
-from ..data.stellar_ds import preprocess_stellar_ds
+from .data.stellar_ds import preprocess_stellar_ds
 from .dataset_training import (
     train_nn_airline,
     test_nn_airline,

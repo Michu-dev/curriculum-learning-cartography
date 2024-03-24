@@ -2,10 +2,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-from .generalised_neural_network_model import GeneralisedNeuralNetworkModel
+from .models.generalised_neural_network_model import GeneralisedNeuralNetworkModel
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from .loss_function_relaxation import relax_loss
+from .features.loss_function_relaxation import relax_loss
 import mlflow
 from sklearn.metrics import roc_auc_score
 from typing import Tuple
