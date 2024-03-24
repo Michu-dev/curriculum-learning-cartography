@@ -1,6 +1,4 @@
-from typing import Any
-import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 import os
 from pathlib import Path
 import pandas as pd
@@ -49,11 +47,18 @@ class CreditCardDataset(Dataset):
         self.X = X.copy().astype(np.float32)
         self.y = y.copy().values.astype(np.float32)
         self.id = np.arange(len(self.y))
+        self.difficulties = np.zeros(len(self.y), dtype=np.float32)
         self.transform = transform
 
     # Workaround with 0 returned always instead of embedded col values for categorical columns
     def __getitem__(self, index: int):
-        sample = self.id[index], 0, self.X[index], self.y[index]
+        sample = (
+            self.id[index],
+            0,
+            self.X[index],
+            self.y[index],
+            self.difficulties[index],
+        )
 
         if self.transform:
             sample = self.transform(sample)
