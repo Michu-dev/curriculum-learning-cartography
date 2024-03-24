@@ -44,7 +44,7 @@ def main(
     plot_map: bool = False,
     rank_mode: str = None,
 ):
-    mlflow.set_experiment("methods_comparison")
+    mlflow.set_experiment("methods_comparison_v2")
     torch.manual_seed(0)
     np.random.seed(0)
     torch.use_deterministic_algorithms(True)

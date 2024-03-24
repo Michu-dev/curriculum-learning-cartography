@@ -44,13 +44,18 @@ def get_self_confidence_rank_and_difficulties(
     y: np.ndarray,
     model: GeneralisedNeuralNetworkModel,
     dataset: Dataset,
+    relaxed: bool,
     loss_fn,
     epochs: int,
+    batch_size: int,
+    lr: float,
 ) -> Subset:
     skorch_model = NeuralNetClassifier(
         model,
         criterion=loss_fn,
         max_epochs=epochs,
+        batch_size=batch_size,
+        lr=lr,
     )
     X_skorch = SliceDict(**X)
     pred_probs = cross_val_predict(
@@ -67,7 +72,8 @@ def get_self_confidence_rank_and_difficulties(
     examples_order = np.argsort(difficulties)
     dataset.difficulties = difficulties
 
-    dataset = Subset(dataset, indices=examples_order)
+    if not relaxed:
+        dataset = Subset(dataset, indices=examples_order)
     return dataset
 
 
@@ -214,8 +220,11 @@ def train_nn_airline(
             y,
             GeneralisedNeuralNetworkModel(embedding_sizes, 7),
             train_ds,
+            relaxed,
             torch.nn.BCEWithLogitsLoss,
             epochs,
+            batch_size,
+            lr,
         )
     elif rank_mode == "cartography":
         loss_fn = torch.nn.BCEWithLogitsLoss()
@@ -291,7 +300,7 @@ def test_nn_airline(
     mlflow.log_metric("recall", recall)
     mlflow.log_metric("f1_score", f1score)
 
-    print("test accuracy %.3f " % (correct / total))
+    logger.info("test accuracy %.3f " % (correct / total))
     return float(correct) / total
 
 
@@ -340,8 +349,11 @@ def train_nn_spotify_tracks(
             y,
             GeneralisedNeuralNetworkModel(embedding_sizes, n_cont, n_class=114),
             train_ds,
+            relaxed,
             torch.nn.CrossEntropyLoss,
             epochs,
+            batch_size,
+            lr,
         )
     elif rank_mode == "cartography":
         loss_fn = torch.nn.CrossEntropyLoss()
@@ -432,7 +444,7 @@ def test_nn_spotify_tracks(
     mlflow.log_metric("micro_recall", recall)
     mlflow.log_metric("micro_f1_score", f1score)
 
-    print("test accuracy %.3f " % (correct / total))
+    logger.info("test accuracy %.3f " % (correct / total))
     return float(correct) / total
 
 
@@ -475,8 +487,11 @@ def train_nn_credit_card(
             y,
             GeneralisedNeuralNetworkModel([], len(X_train[0])),
             train_ds,
+            relaxed,
             torch.nn.BCEWithLogitsLoss,
             epochs,
+            batch_size,
+            lr,
         )
     elif rank_mode == "cartography":
         loss_fn = torch.nn.BCEWithLogitsLoss()
@@ -559,7 +574,7 @@ def test_nn_credit_card(
     mlflow.log_metric("recall", recall)
     mlflow.log_metric("f1_score", f1score)
 
-    print("test accuracy %.3f " % (correct / total))
+    logger.info("test accuracy %.3f " % (correct / total))
     return float(correct) / total
 
 
@@ -608,8 +623,11 @@ def train_nn_stellar(
             y,
             GeneralisedNeuralNetworkModel(embedding_sizes, n_cont, n_class=3),
             train_ds,
+            relaxed,
             torch.nn.CrossEntropyLoss,
             epochs,
+            batch_size,
+            lr,
         )
     elif rank_mode == "cartography":
         loss_fn = torch.nn.CrossEntropyLoss()
@@ -699,5 +717,5 @@ def test_nn_stellar(
     mlflow.log_metric("micro_recall", recall)
     mlflow.log_metric("micro_f1_score", f1score)
 
-    print("test accuracy %.3f " % (correct / total))
+    logger.info("test accuracy %.3f " % (correct / total))
     return float(correct) / total

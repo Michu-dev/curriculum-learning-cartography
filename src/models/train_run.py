@@ -9,6 +9,12 @@ from .loss_function_relaxation import relax_loss
 import mlflow
 from sklearn.metrics import roc_auc_score
 from typing import Tuple
+import logging
+
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s", level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
 
 def to_device(data, device):
@@ -78,7 +84,7 @@ def train_gnn_model(
     model.train()
     total = 0
     sum_loss = 0
-    print("Training:")
+    logger.info("Running training loop")
     reduction = "none" if relaxed else "mean"
     loss_fn = (
         nn.BCEWithLogitsLoss(reduction=reduction)
@@ -121,7 +127,7 @@ def validate_gnn_loss(
     sum_loss = 0
     correct = 0
     all_preds, all_labels = [], []
-    print("Validation:")
+    logger.info("Running validation loop")
     reduction = "none" if relaxed else "mean"
     loss_fn = (
         nn.BCEWithLogitsLoss(reduction=reduction)

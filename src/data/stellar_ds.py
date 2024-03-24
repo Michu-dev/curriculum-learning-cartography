@@ -6,9 +6,13 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from imblearn.over_sampling import SMOTE
 from collections import Counter
-
+import logging
 from dotenv import load_dotenv
 
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s", level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 load_dotenv()
 
 
@@ -40,9 +44,9 @@ def preprocess_stellar_ds() -> (
     y = star_df.loc[:, "class"]
 
     smote = SMOTE(random_state=42)
-    print("Original dataset shape %s" % Counter(y))
+    logger.info("Original star classification dataset shape %s" % Counter(y))
     x, y = smote.fit_resample(x, y)
-    print("Resampled dataset shape %s" % Counter(y))
+    logger.info("Resampled star classification dataset shape %s" % Counter(y))
 
     star_df["class"] = LabelEncoder().fit_transform(star_df["class"])
     star_df["fiber_ID"] = LabelEncoder().fit_transform(star_df["fiber_ID"])
