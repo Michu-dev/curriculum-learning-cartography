@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from .models.generalised_neural_network_model import GeneralisedNeuralNetworkModel
+from .models.cnn_classifier import FashionMNISTModel
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from .features.loss_function_relaxation import relax_loss
@@ -49,7 +50,7 @@ class DeviceDataLoader:
 
 def training_gnn_loop(
     epochs: int,
-    model: GeneralisedNeuralNetworkModel,
+    model: GeneralisedNeuralNetworkModel | FashionMNISTModel,
     optimizer: torch.optim.Adam,
     train_dl: DeviceDataLoader,
     valid_dl: DeviceDataLoader,
@@ -74,8 +75,8 @@ def training_gnn_loop(
 
 
 def train_gnn_model(
-    model: GeneralisedNeuralNetworkModel,
-    optim: torch.optim.Adam,
+    model: GeneralisedNeuralNetworkModel | FashionMNISTModel,
+    optim: torch.optim.Adam | torch.optim.SGD,
     train_dl: DataLoader,
     epoch: int,
     relaxed: bool = False,
@@ -116,7 +117,7 @@ def train_gnn_model(
 
 
 def validate_gnn_loss(
-    model: GeneralisedNeuralNetworkModel,
+    model: GeneralisedNeuralNetworkModel | FashionMNISTModel,
     valid_dl: DataLoader,
     epoch: int,
     relaxed: bool = False,

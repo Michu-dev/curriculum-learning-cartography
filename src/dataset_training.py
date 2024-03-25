@@ -2,8 +2,10 @@ from .data.airline_passenger_satisfaction_train import AirlinePassengersDataset
 from .data.credit_card_fraud import CreditCardDataset
 from .data.spotify_tracks_genre import SpotifyTracksDataset
 from .data.stellar_ds import StellarDataset
+from .data.fashion_mnist import FashionMNISTDataset
 from .features.cartography_functions import data_cartography, plot_cartography_map
 from .models.generalised_neural_network_model import GeneralisedNeuralNetworkModel
+from .models.cnn_classifier import FashionMNISTModel
 from .features.loss_function_relaxation import get_default_device
 from .train_run import (
     get_optimizer,
@@ -42,7 +44,7 @@ logger = logging.getLogger(__name__)
 def get_self_confidence_rank_and_difficulties(
     X: dict,
     y: np.ndarray,
-    model: GeneralisedNeuralNetworkModel,
+    model: GeneralisedNeuralNetworkModel | FashionMNISTModel,
     dataset: Dataset,
     loss_fn,
     epochs: int,
@@ -77,7 +79,7 @@ def get_self_confidence_rank_and_difficulties(
 
 
 def get_cartography_rank_and_difficulties(
-    model: GeneralisedNeuralNetworkModel,
+    model: GeneralisedNeuralNetworkModel | FashionMNISTModel,
     path: Path,
     dataset: Dataset,
     loss_fn,
@@ -118,6 +120,7 @@ def get_cartography_rank_and_difficulties(
             path,
             plot_title,
             True,
+            model.__class__.__name__,
         )
         # Plot clustering results
         sns.set(style="whitegrid", font_scale=1.6, font="Georgia", context="paper")
@@ -672,6 +675,134 @@ def test_nn_stellar(
 ):
     embedded_col_names = embedded_cols.keys()
     test_ds = StellarDataset(X, y, embedded_col_names)
+
+    test_dl = DataLoader(test_ds, batch_size=batch_size)
+    device = get_default_device()
+    test_dl = DeviceDataLoader(test_dl, device)
+
+    all_preds, all_labels = [], []
+    total, correct = 0, 0
+    with torch.no_grad():
+        for _, x1, x2, y, _ in test_dl:
+            current_batch_size = y.shape[0]
+            if 1 in list(y.shape):
+                y = y.squeeze(dim=1)
+            out = model(x1, x2)
+            y_pred_softmax = F.log_softmax(out, dim=1)
+            _, y_pred_tags = torch.max(y_pred_softmax, dim=1)
+
+            all_preds.extend(y_pred_tags.cpu().detach().numpy().astype(int).tolist())
+            all_labels.extend(y.cpu().detach().numpy().astype(int).tolist())
+
+            total += current_batch_size
+
+            correct += (y_pred_tags == y.squeeze()).float().sum()
+
+    all_labels = np.squeeze(np.array(all_labels).astype(int)).tolist()
+    all_preds = np.squeeze(np.array(all_preds).astype(int)).tolist()
+
+    precision = precision_score(all_labels, all_preds, average="micro")
+    recall = recall_score(all_labels, all_preds, average="micro")
+    f1score = f1_score(all_labels, all_preds, average="micro")
+
+    mlflow.log_metric("test_acc", (correct / total))
+    mlflow.log_metric("micro_precision", precision)
+    mlflow.log_metric("micro_recall", recall)
+    mlflow.log_metric("micro_f1_score", f1score)
+
+    logger.info("test accuracy %.3f " % (correct / total))
+    return float(correct) / total
+
+
+def train_cnn_fashion_mnist(
+    X: torch.Tensor,
+    y: torch.Tensor,
+    rank_mode: str,
+    relaxed: bool = False,
+    epochs: int = 8,
+    batch_size: int = 1000,
+    lr: float = 0.01,
+    plot_map: bool = False,
+    wd: float = 0.0,
+) -> GeneralisedNeuralNetworkModel:
+    X_train, X_val, y_train, y_val = train_test_split(
+        X, y, test_size=0.10, random_state=0
+    )
+
+    train_ds = FashionMNISTDataset(X_train, y_train)
+    valid_ds = FashionMNISTDataset(X_val, y_val)
+
+    device = get_default_device()
+    # n_class - 10 for Fashin MNIST
+    model = FashionMNISTModel(1, 32, 10)
+
+    if rank_mode == "confidence":
+        X = np.asarray(X_train, dtype=np.float32)
+        y = np.asarray(y_train, dtype=np.int64)
+        X = {
+            "x": X,
+            "x1": np.ones(X.shape),
+        }
+        train_ds = get_self_confidence_rank_and_difficulties(
+            X,
+            y,
+            FashionMNISTModel(1, 32, 10),
+            train_ds,
+            torch.nn.CrossEntropyLoss,
+            epochs,
+            batch_size,
+            lr,
+        )
+    elif rank_mode == "cartography":
+        loss_fn = torch.nn.CrossEntropyLoss()
+        path_to_save_training_dynamics = Path("./") / "fashion_mnist_training_dynamics"
+
+        train_ds = get_cartography_rank_and_difficulties(
+            FashionMNISTModel(1, 32, 10),
+            path_to_save_training_dynamics,
+            train_ds,
+            loss_fn,
+            plot_map,
+            "Fashion_Mnist",
+            False,
+            epochs,
+            device,
+            batch_size,
+            lr,
+            wd,
+        )
+
+    to_device(model, device)
+    optim = get_optimizer(model, lr=lr, wd=wd)
+
+    if rank_mode:
+        train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=False)
+    else:
+        train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
+    valid_dl = DataLoader(valid_ds, batch_size=batch_size, shuffle=True)
+    train_dl = DeviceDataLoader(train_dl, device)
+    valid_dl = DeviceDataLoader(valid_dl, device)
+
+    model = training_gnn_loop(
+        epochs,
+        model,
+        optim,
+        train_dl,
+        valid_dl,
+        relaxed=relaxed,
+        bin=False,
+    )
+
+    return model
+
+
+def test_cnn_fashion_mnist(
+    model: FashionMNISTDataset,
+    X: torch.Tensor,
+    y: torch.Tensor,
+    batch_size: int = 1000,
+):
+    test_ds = FashionMNISTDataset(X, y)
 
     test_dl = DataLoader(test_ds, batch_size=batch_size)
     device = get_default_device()

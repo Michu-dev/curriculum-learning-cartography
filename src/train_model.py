@@ -6,6 +6,7 @@ from .data.spotify_tracks_genre import (
     preprocess_spotify_tracks_ds,
 )
 from .data.stellar_ds import preprocess_stellar_ds
+from .data.fashion_mnist import get_fashion_mnist_data
 from .dataset_training import (
     train_nn_airline,
     test_nn_airline,
@@ -15,6 +16,8 @@ from .dataset_training import (
     test_nn_spotify_tracks,
     train_nn_stellar,
     test_nn_stellar,
+    train_cnn_fashion_mnist,
+    test_cnn_fashion_mnist,
 )
 import torch
 import numpy as np
@@ -44,7 +47,7 @@ def main(
     plot_map: bool = False,
     rank_mode: str = None,
 ):
-    mlflow.set_experiment("methods_comparison_v2")
+    mlflow.set_experiment("fashion_mnist_cnn")
     torch.manual_seed(0)
     np.random.seed(0)
     torch.use_deterministic_algorithms(True)
@@ -120,6 +123,25 @@ def main(
 
             test_acc = test_nn_stellar(
                 model, X_test, y_test, embedded_cols, batch_size=batch_size
+            )
+        elif dataset == "fashion_mnist":
+            train_data, test_data = get_fashion_mnist_data()
+            X_rem, y_rem = map(list, zip(*[[x[0].numpy(), x[1]] for x in train_data]))
+            X_test, y_test = map(list, zip(*[[x[0].numpy(), x[1]] for x in test_data]))
+
+            model = train_cnn_fashion_mnist(
+                X_rem,
+                y_rem,
+                rank_mode,
+                relaxed=relaxed,
+                epochs=epochs,
+                batch_size=batch_size,
+                lr=lr,
+                plot_map=plot_map,
+            )
+
+            test_acc = test_cnn_fashion_mnist(
+                model, X_test, y_test, batch_size=batch_size
             )
 
         mlflow.log_param("dataset", dataset)
