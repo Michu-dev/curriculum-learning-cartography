@@ -147,30 +147,34 @@ def get_cartography_rank_and_difficulties(
 
     y_qualities = np.ones(len(dataset), dtype=np.float32)
 
-    embedding = umap.UMAP(n_components=1, random_state=42).fit_transform(
-        x_train, kmeans_labels
-    )
+    # embedding = umap.UMAP(n_components=1, random_state=42).fit_transform(
+    #     x_train, kmeans_labels
+    # )
 
     # Interpolation mode - to consider
     # embedding = (x_train[other_metric] + x_train[main_label]).values.reshape(-1, 1)
-    embedding = MinMaxScaler().fit_transform(embedding)
+    # embedding = MinMaxScaler().fit_transform(embedding)
 
-    reduced_kmeans_labels = KMeans(
-        n_clusters=3, random_state=0, n_init="auto"
-    ).fit_predict(embedding)
-    embedding = embedding.reshape(-1)
+    # reduced_kmeans_labels = KMeans(
+    #     n_clusters=3, random_state=0, n_init="auto"
+    # ).fit_predict(embedding)
+    # embedding = embedding.reshape(-1)
 
     # Loop matching distributed training dynamics values with dataset
     for i, x in enumerate(dataset):
         curr_row_idx = cartography_stats_df.index[cartography_stats_df["guid"] == x[0]]
-        y_qualities[i] = embedding[curr_row_idx]
+        y_qualities[i] = cartography_stats_df.loc[curr_row_idx, other_metric]
 
-    logger.info(
-        f"Adjusted_rand_score: {adjusted_rand_score(kmeans_labels, reduced_kmeans_labels)}"
-    )
-    logger.info(
-        f"Adjusted mutual information: {adjusted_mutual_info_score(kmeans_labels, reduced_kmeans_labels)}"
-    )
+    print(dataset[:10])
+    print(cartography_stats_df[cartography_stats_df["guid"].between(0, 9)])
+    print(y_qualities[:10])
+
+    # logger.info(
+    #     f"Adjusted_rand_score: {adjusted_rand_score(kmeans_labels, reduced_kmeans_labels)}"
+    # )
+    # logger.info(
+    #     f"Adjusted mutual information: {adjusted_mutual_info_score(kmeans_labels, reduced_kmeans_labels)}"
+    # )
 
     examples_order = np.argsort(y_qualities)[::-1]
     dataset.difficulties = y_qualities

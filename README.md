@@ -1,10 +1,8 @@
-dynamic-curriculum-learning
-==============================
+# dynamic-curriculum-learning
 
 Master thesis project
 
-Project Organization
-------------
+## Project Organization
 
     ├── LICENSE
     ├── Makefile           <- Makefile with commands like `make data` or `make train`
@@ -51,7 +49,16 @@ Project Organization
     │
     └── tox.ini            <- tox file with settings for running tox; see tox.readthedocs.io
 
-
---------
+---
 
 <p><small>Project based on the <a target="_blank" href="https://drivendata.github.io/cookiecutter-data-science/">cookiecutter data science project template</a>. #cookiecutterdatascience</small></p>
+
+### Running an experiment
+
+To run the experiment, at first you have to run an instance of mlflow, exposed to a particular port and host address. Then you have to set up the environmental variable if you are working on Windows OS and finally run command with proper settings e.g.:
+
+```
+mlflow ui -p 5000 -h 0.0.0.0
+$Env:CUBLAS_WORKSPACE_CONFIG=":4096:8"
+python -m src.train_model -d stellar
+```
