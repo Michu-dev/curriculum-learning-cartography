@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
+from typing import Tuple
 
 from dotenv import load_dotenv
 
@@ -17,7 +18,7 @@ def read_data(path: Path) -> pd.DataFrame:
 
 
 def preprocess_credit_card_ds() -> (
-    tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, list]
+    Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, list]
 ):
     ds_path = os.environ.get("PATH_TO_CREDIT_CARD")
     credit_card_df = read_data(ds_path)

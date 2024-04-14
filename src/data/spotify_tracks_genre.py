@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder, StandardScaler
+from typing import Tuple
 
 from dotenv import load_dotenv
 
@@ -11,7 +12,7 @@ load_dotenv()
 
 
 def preprocess_spotify_tracks_ds() -> (
-    tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]
+    Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]
 ):
     ds_path = os.environ.get("PATH_TO_SPOTIFY_GENRE")
     spotify_tracks_df = pd.read_csv(ds_path, delimiter=",", header=0)
@@ -83,7 +84,7 @@ class SpotifyTracksDataset(Dataset):
 
         self.transform = transform
 
-    def __getitem__(self, index: int) -> tuple[np.int64, np.float32, np.float32]:
+    def __getitem__(self, index: int) -> Tuple[np.int64, np.float32, np.float32]:
         sample = (
             self.id[index],
             self.X1[index],

@@ -6,6 +6,7 @@ import numpy as np
 from pathlib import Path
 from sklearn.preprocessing import LabelEncoder
 from dotenv import load_dotenv
+from typing import Tuple
 
 load_dotenv()
 
@@ -28,7 +29,7 @@ def data_preprocessing(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def preprocess_airline_data() -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+def preprocess_airline_data() -> Tuple[pd.DataFrame, pd.DataFrame, dict]:
     train_path, test_path = os.environ.get("PATH_TO_AIRLINE_TRAIN"), os.environ.get(
         "PATH_TO_AIRLINE_TEST"
     )

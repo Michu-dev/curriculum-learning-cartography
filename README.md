@@ -62,3 +62,23 @@ mlflow ui -p 5000 -h 0.0.0.0
 $Env:CUBLAS_WORKSPACE_CONFIG=":4096:8"
 python -m src.train_model -d stellar
 ```
+
+How to set up AutoPytorch for Windows (Config):
+
+```
+git submodule update --init --recursive
+git clone https://github.com/automl/Auto-PyTorch.git
+conda create -n <env_name> python=3.8
+conda activate <env_name>
+conda install swig
+cd Auto-PyTorch
+Get-Content requirements.txt | % { pip install $_ }
+python setup.py install
+```
+
+Activate/deactivate automatic conda env:
+
+```
+conda config --set auto_activate_base false
+conda config --set auto_activate_base true
+```

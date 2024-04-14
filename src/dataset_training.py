@@ -24,7 +24,6 @@ from skorch.helper import SliceDict
 from sklearn.metrics import precision_score, recall_score, f1_score
 from sklearn.model_selection import train_test_split, cross_val_predict
 from sklearn.preprocessing import MinMaxScaler
-import umap
 from sklearn.cluster import KMeans
 import mlflow
 from pathlib import Path
