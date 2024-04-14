@@ -27,6 +27,9 @@ import mlflow
 
 @plac.opt("dataset", "Dataset to use for NN model evaluation", str, "d")
 @plac.flg("relaxed", "Relax loss function flag", "r")
+@plac.flg(
+    "ranked", "Rank examples from training set in level of difficulty flag", "rnk"
+)
 @plac.opt("batch_size", "Batch size of the data", int, "b")
 @plac.opt("epochs", "Epochs number of training", int, "e")
 @plac.opt("lr", "Learning rate of optimizer", float, "l")
@@ -38,14 +41,21 @@ import mlflow
     "m",
     ["cartography", "confidence", None],
 )
+@plac.opt("alpha", "Alpha parameter of 2D -> 1D mapping in Cartography", float, "a")
+@plac.opt("beta", "Beta parameter of 2D -> 1D mapping in Cartography", float, "bt")
+@plac.opt("gamma", "Gamma parameter of relaxation loss function", float, "g")
 def main(
     dataset: str = "credit_card",
     relaxed: bool = False,
+    ranked: bool = False,
     batch_size: int = 1000,
     epochs: int = 8,
     lr: float = 0.01,
     plot_map: bool = False,
     rank_mode: str = None,
+    alpha: float = None,
+    beta: float = None,
+    gamma: float = 2.0,
 ):
     mlflow.set_experiment("fashion_mnist_cnn")
     torch.manual_seed(0)
@@ -66,6 +76,10 @@ def main(
                 embedded_cols,
                 rank_mode,
                 relaxed=relaxed,
+                ranked=ranked,
+                alpha=alpha,
+                beta=beta,
+                gamma=gamma,
                 epochs=epochs,
                 batch_size=batch_size,
                 lr=lr,
@@ -83,6 +97,10 @@ def main(
                 prop,
                 rank_mode,
                 relaxed=relaxed,
+                ranked=ranked,
+                alpha=alpha,
+                beta=beta,
+                gamma=gamma,
                 epochs=epochs,
                 batch_size=batch_size,
                 lr=lr,
@@ -98,6 +116,10 @@ def main(
                 embedded_cols,
                 rank_mode,
                 relaxed=relaxed,
+                ranked=ranked,
+                alpha=alpha,
+                beta=beta,
+                gamma=gamma,
                 epochs=epochs,
                 batch_size=batch_size,
                 lr=lr,
@@ -115,6 +137,10 @@ def main(
                 embedded_cols,
                 rank_mode,
                 relaxed=relaxed,
+                ranked=ranked,
+                alpha=alpha,
+                beta=beta,
+                gamma=gamma,
                 epochs=epochs,
                 batch_size=batch_size,
                 lr=lr,
@@ -134,6 +160,10 @@ def main(
                 y_rem,
                 rank_mode,
                 relaxed=relaxed,
+                ranked=ranked,
+                alpha=alpha,
+                beta=beta,
+                gamma=gamma,
                 epochs=epochs,
                 batch_size=batch_size,
                 lr=lr,

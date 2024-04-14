@@ -55,12 +55,15 @@ def training_gnn_loop(
     train_dl: DeviceDataLoader,
     valid_dl: DeviceDataLoader,
     relaxed: bool = False,
+    gamma: float = 2.0,
     bin: bool = True,
 ) -> GeneralisedNeuralNetworkModel:
     for i in range(epochs):
-        loss = train_gnn_model(model, optimizer, train_dl, i, relaxed=relaxed, bin=bin)
+        loss = train_gnn_model(
+            model, optimizer, train_dl, i, relaxed=relaxed, gamma=gamma, bin=bin
+        )
         val_loss, acc, all_preds, all_labels = validate_gnn_loss(
-            model, valid_dl, i, relaxed=relaxed, bin=bin
+            model, valid_dl, i, bin=bin
         )
 
         mlflow.log_metric("train_loss", loss, step=i)
@@ -80,6 +83,7 @@ def train_gnn_model(
     train_dl: DataLoader,
     epoch: int,
     relaxed: bool = False,
+    gamma: float = 2.0,
     bin: bool = True,
 ) -> float:
     model.train()
@@ -103,7 +107,7 @@ def train_gnn_model(
             loss = loss_fn(output, y)
 
             if relaxed:
-                loss = relax_loss(loss, difficulties, epoch + 1)
+                loss = relax_loss(loss, difficulties, epoch + 1, gamma)
 
             optim.zero_grad()
             loss.backward()
@@ -120,7 +124,6 @@ def validate_gnn_loss(
     model: GeneralisedNeuralNetworkModel | FashionMNISTModel,
     valid_dl: DataLoader,
     epoch: int,
-    relaxed: bool = False,
     bin: bool = True,
 ) -> Tuple[float, float, list, list]:
     model.eval()
@@ -129,15 +132,10 @@ def validate_gnn_loss(
     correct = 0
     all_preds, all_labels = [], []
     logger.info("Running validation loop")
-    reduction = "none" if relaxed else "mean"
-    loss_fn = (
-        nn.BCEWithLogitsLoss(reduction=reduction)
-        if bin
-        else nn.CrossEntropyLoss(reduction=reduction)
-    )
+    loss_fn = nn.BCEWithLogitsLoss() if bin else nn.CrossEntropyLoss()
 
     with tqdm(valid_dl, unit="batch") as tepoch:
-        for _, x1, x2, y, difficulties in tepoch:
+        for _, x1, x2, y, _ in tepoch:
             if 1 in list(y.shape) and not bin:
                 y = y.squeeze(dim=1)
             tepoch.set_description(f"Epoch {epoch+1}")
@@ -152,9 +150,6 @@ def validate_gnn_loss(
             all_labels.extend(y.cpu().detach().numpy().astype(int).tolist())
 
             loss = loss_fn(out, y)
-
-            if relaxed:
-                loss = relax_loss(loss, difficulties, epoch + 1)
 
             sum_loss += current_batch_size * (loss.item())
             total += current_batch_size

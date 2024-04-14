@@ -3,7 +3,11 @@ from .data.credit_card_fraud import CreditCardDataset
 from .data.spotify_tracks_genre import SpotifyTracksDataset
 from .data.stellar_ds import StellarDataset
 from .data.fashion_mnist import FashionMNISTDataset
-from .features.cartography_functions import data_cartography, plot_cartography_map
+from .features.cartography_functions import (
+    data_cartography,
+    plot_cartography_map,
+    normalize_data,
+)
 from .models.generalised_neural_network_model import GeneralisedNeuralNetworkModel
 from .models.cnn_classifier import FashionMNISTModel
 from .features.loss_function_relaxation import get_default_device
@@ -48,8 +52,9 @@ def get_self_confidence_rank_and_difficulties(
     loss_fn,
     epochs: int,
     batch_size: int,
+    ranked: bool,
     lr: float,
-) -> Subset:
+) -> Subset | Dataset:
     skorch_model = NeuralNetClassifier(
         model,
         criterion=loss_fn,
@@ -72,8 +77,8 @@ def get_self_confidence_rank_and_difficulties(
     examples_order = np.argsort(difficulties)
     dataset.difficulties = difficulties
 
-    # if not relaxed:
-    dataset = Subset(dataset, indices=examples_order)
+    if ranked:
+        dataset = Subset(dataset, indices=examples_order)
     return dataset
 
 
@@ -87,10 +92,13 @@ def get_cartography_rank_and_difficulties(
     binary: bool,
     epochs: int,
     device: torch.device,
+    alpha: float,
+    beta: float,
     batch_size: int,
+    ranked: bool,
     lr: float,
     wd: float,
-) -> Subset:
+) -> Subset | Dataset:
     to_device(model, device)
     optim_for_cartography = get_optimizer(model, lr=lr, wd=wd)
     cartography_train_dl = DataLoader(dataset, batch_size=batch_size, shuffle=True)
@@ -106,13 +114,34 @@ def get_cartography_rank_and_difficulties(
     )
     # clustering -> assign examples to classes: easy-to-learn/ambiguous/hard-to-learn
     # dimensionality reduction -> UMAP 2D -> 1D with higher classification maintenance | normalized weights of 2D features
-    main_label, other_metric, cluster_num = "variability", "confidence", "labels"
+    main_label, other_metric, cluster_num, difficulty_label = (
+        "variability",
+        "confidence",
+        "labels",
+        "difficulty",
+    )
     x_train = cartography_stats_df[[main_label, other_metric]]
     x_train[main_label] = 2 * x_train[main_label]
     kmeans_labels = KMeans(n_clusters=3, random_state=42, n_init="auto").fit_predict(
         x_train
     )
-    cartography_stats_df["labels"] = kmeans_labels
+    cartography_stats_df[cluster_num] = kmeans_labels
+
+    # 2D -> 1D difficulty mapping for Data Cartography
+    cartography_stats_df[difficulty_label] = (
+        beta * cartography_stats_df[other_metric]
+        + (
+            alpha
+            ** (
+                (-1 * np.abs(cartography_stats_df[other_metric] - 0.5))
+                * (1 - cartography_stats_df[main_label])
+            )
+        )
+        / beta
+    )
+    cartography_stats_df[difficulty_label] = normalize_data(
+        cartography_stats_df[difficulty_label]
+    )
     if plot_flag:
         plot_cartography_map(
             cartography_stats_df,
@@ -162,7 +191,7 @@ def get_cartography_rank_and_difficulties(
     # Loop matching distributed training dynamics values with dataset
     for i, x in enumerate(dataset):
         curr_row_idx = cartography_stats_df.index[cartography_stats_df["guid"] == x[0]]
-        y_qualities[i] = cartography_stats_df.loc[curr_row_idx, other_metric]
+        y_qualities[i] = cartography_stats_df.loc[curr_row_idx, difficulty_label]
 
     print(dataset[:10])
     print(cartography_stats_df[cartography_stats_df["guid"].between(0, 9)])
@@ -175,12 +204,11 @@ def get_cartography_rank_and_difficulties(
     #     f"Adjusted mutual information: {adjusted_mutual_info_score(kmeans_labels, reduced_kmeans_labels)}"
     # )
 
-    examples_order = np.argsort(y_qualities)[::-1]
+    examples_order = np.argsort(y_qualities)
     dataset.difficulties = y_qualities
 
-    # To consider
-    # if not relaxed:
-    dataset = Subset(dataset, indices=examples_order)
+    if ranked:
+        dataset = Subset(dataset, indices=examples_order)
     return dataset
 
 
@@ -189,6 +217,10 @@ def train_nn_airline(
     embedded_cols: dict,
     rank_mode: str,
     relaxed: bool = False,
+    ranked: bool = False,
+    alpha: float = None,
+    beta: float = None,
+    gamma: float = 2.0,
     epochs: int = 8,
     batch_size: int = 1000,
     lr: float = 0.01,
@@ -227,6 +259,7 @@ def train_nn_airline(
             torch.nn.BCEWithLogitsLoss,
             epochs,
             batch_size,
+            ranked,
             lr,
         )
     elif rank_mode == "cartography":
@@ -243,7 +276,10 @@ def train_nn_airline(
             True,
             epochs,
             device,
+            alpha,
+            beta,
             batch_size,
+            ranked,
             lr,
             wd,
         )
@@ -259,7 +295,9 @@ def train_nn_airline(
     train_dl = DeviceDataLoader(train_dl, device)
     valid_dl = DeviceDataLoader(valid_dl, device)
 
-    model = training_gnn_loop(epochs, model, optim, train_dl, valid_dl, relaxed=relaxed)
+    model = training_gnn_loop(
+        epochs, model, optim, train_dl, valid_dl, relaxed=relaxed, gamma=gamma
+    )
 
     return model
 
@@ -312,6 +350,10 @@ def train_nn_spotify_tracks(
     embedded_cols: dict,
     rank_mode: str,
     relaxed: bool = False,
+    ranked: bool = False,
+    alpha: float = None,
+    beta: float = None,
+    gamma: float = 2.0,
     epochs: int = 8,
     batch_size: int = 1000,
     lr: float = 0.01,
@@ -354,6 +396,7 @@ def train_nn_spotify_tracks(
             torch.nn.CrossEntropyLoss,
             epochs,
             batch_size,
+            ranked,
             lr,
         )
     elif rank_mode == "cartography":
@@ -372,7 +415,10 @@ def train_nn_spotify_tracks(
             False,
             epochs,
             device,
+            alpha,
+            beta,
             batch_size,
+            ranked,
             lr,
             wd,
         )
@@ -395,6 +441,7 @@ def train_nn_spotify_tracks(
         train_dl,
         valid_dl,
         relaxed=relaxed,
+        gamma=gamma,
         bin=False,
     )
 
@@ -454,6 +501,10 @@ def train_nn_credit_card(
     propotions: list,
     rank_mode: str,
     relaxed: bool = False,
+    ranked: bool = False,
+    alpha: float = None,
+    beta: float = None,
+    gamma: float = 2.0,
     epochs: int = 8,
     batch_size: int = 1000,
     lr: float = 0.01,
@@ -490,6 +541,7 @@ def train_nn_credit_card(
             torch.nn.BCEWithLogitsLoss,
             epochs,
             batch_size,
+            ranked,
             lr,
         )
     elif rank_mode == "cartography":
@@ -506,7 +558,10 @@ def train_nn_credit_card(
             True,
             epochs,
             device,
+            alpha,
+            beta,
             batch_size,
+            ranked,
             lr,
             wd,
         )
@@ -529,6 +584,7 @@ def train_nn_credit_card(
         train_dl,
         valid_dl,
         relaxed=relaxed,
+        gamma=gamma,
     )
 
     return model
@@ -582,6 +638,10 @@ def train_nn_stellar(
     embedded_cols: dict,
     rank_mode: str,
     relaxed: bool = False,
+    ranked: bool = False,
+    alpha: float = None,
+    beta: float = None,
+    gamma: float = 2.0,
     epochs: int = 8,
     batch_size: int = 1000,
     lr: float = 0.01,
@@ -624,6 +684,7 @@ def train_nn_stellar(
             torch.nn.CrossEntropyLoss,
             epochs,
             batch_size,
+            ranked,
             lr,
         )
     elif rank_mode == "cartography":
@@ -640,7 +701,10 @@ def train_nn_stellar(
             False,
             epochs,
             device,
+            alpha,
+            beta,
             batch_size,
+            ranked,
             lr,
             wd,
         )
@@ -663,6 +727,7 @@ def train_nn_stellar(
         train_dl,
         valid_dl,
         relaxed=relaxed,
+        gamma=gamma,
         bin=False,
     )
 
@@ -722,6 +787,10 @@ def train_cnn_fashion_mnist(
     y: torch.Tensor,
     rank_mode: str,
     relaxed: bool = False,
+    ranked: bool = False,
+    alpha: float = None,
+    beta: float = None,
+    gamma: float = 2.0,
     epochs: int = 8,
     batch_size: int = 1000,
     lr: float = 0.01,
@@ -754,6 +823,7 @@ def train_cnn_fashion_mnist(
             torch.nn.CrossEntropyLoss,
             epochs,
             batch_size,
+            ranked,
             lr,
         )
     elif rank_mode == "cartography":
@@ -770,7 +840,10 @@ def train_cnn_fashion_mnist(
             False,
             epochs,
             device,
+            alpha,
+            beta,
             batch_size,
+            ranked,
             lr,
             wd,
         )
@@ -793,6 +866,7 @@ def train_cnn_fashion_mnist(
         train_dl,
         valid_dl,
         relaxed=relaxed,
+        gamma=gamma,
         bin=False,
     )
 
