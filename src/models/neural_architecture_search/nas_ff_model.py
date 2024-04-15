@@ -3,9 +3,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import nni
 from nni.nas.nn.pytorch import LayerChoice, ModelSpace, MutableDropout, MutableLinear
-import nni.nas.strategy as strategy
-from nni.nas.evaluator import FunctionalEvaluator
-from nni.nas.experiment import NasExperiment
 from ...data.stellar_ds import preprocess_stellar_ds, StellarDataset
 from ...data.airline_passenger_satisfaction_train import (
     preprocess_airline_data,
@@ -16,7 +13,6 @@ from ...data.spotify_tracks_genre import (
     preprocess_spotify_tracks_ds,
     SpotifyTracksDataset,
 )
-from ...data.fashion_mnist import get_fashion_mnist_data, FashionMNISTDataset
 from ...features.loss_function_relaxation import get_default_device
 from ...train_run import to_device
 from torch.utils.data import DataLoader
