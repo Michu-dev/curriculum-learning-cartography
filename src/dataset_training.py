@@ -31,6 +31,7 @@ from sklearn.cluster import KMeans
 import mlflow
 from pathlib import Path
 from cleanlab.rank import get_self_confidence_for_each_label
+from imblearn.under_sampling import RandomUnderSampler
 from imblearn.over_sampling import SMOTE
 import logging
 import matplotlib.pyplot as plt
@@ -467,7 +468,9 @@ def train_nn_credit_card(
 
     # Apply SMOTE oversampling to the training data
     smote = SMOTE(random_state=42)
+    under_sampler = RandomUnderSampler(random_state=42)
     X_train, y_train = smote.fit_resample(X_train, y_train)
+    X_train, y_train = under_sampler.fit_resample(X_train, y_train)
 
     train_ds = CreditCardDataset(X_train, y_train)
     valid_ds = CreditCardDataset(X_val, y_val)
@@ -719,7 +722,7 @@ def train_cnn_fashion_mnist(
     valid_ds = FashionMNISTDataset(X_val, y_val)
 
     device = get_default_device()
-    # n_class - 10 for Fashin MNIST
+    # n_class - 10 for Fashion MNIST
     model = FashionMNISTModel(1, 76, 10, 3, 1, 1, 4, 0, 2, 0.72003, 140)
 
     if rank_mode == "confidence":
