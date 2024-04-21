@@ -73,12 +73,13 @@ def get_self_confidence_rank_and_difficulties(
     y_qualities = get_self_confidence_for_each_label(
         y.astype(np.int64), pred_probs
     ).squeeze()
-    difficulties = np.ones_like(y_qualities) - y_qualities
-    examples_order = np.argsort(difficulties)
-    dataset.difficulties = difficulties
+    # difficulties = np.ones_like(y_qualities) - y_qualities
+    examples_order = np.argsort(y_qualities)[::-1]
+    dataset.difficulties = y_qualities  # difficulties?
 
     if ranked:
         dataset = Subset(dataset, indices=examples_order)
+
     return dataset
 
 
@@ -204,7 +205,7 @@ def get_cartography_rank_and_difficulties(
     #     f"Adjusted mutual information: {adjusted_mutual_info_score(kmeans_labels, reduced_kmeans_labels)}"
     # )
 
-    examples_order = np.argsort(y_qualities)
+    examples_order = np.argsort(y_qualities)[::-1]
     dataset.difficulties = y_qualities
 
     if ranked:
@@ -224,6 +225,11 @@ def train_nn_airline(
     epochs: int = 8,
     batch_size: int = 1000,
     lr: float = 0.01,
+    optimizer: str = "Adam",
+    hidden_layers: int = 1,
+    dropout: float = 0.5,
+    emb_dropout: float = 0.25,
+    features: int = 150,
     plot_map: bool = False,
     wd: float = 0.0,
 ) -> GeneralisedNeuralNetworkModel:
@@ -242,7 +248,15 @@ def train_nn_airline(
     valid_ds = AirlinePassengersDataset(X_val, y_val, embedded_col_names)
 
     device = get_default_device()
-    model = GeneralisedNeuralNetworkModel(embedding_sizes, 7)
+    model = GeneralisedNeuralNetworkModel(
+        embedding_sizes,
+        7,
+        n_class=1,
+        dropout=dropout,
+        emb_dropout=emb_dropout,
+        hidden_layers=hidden_layers,
+        features=features,
+    )
     if rank_mode == "confidence":
         X1 = X_train.loc[:, embedded_col_names].copy().values.astype(np.int64)
         X2 = X_train.drop(columns=embedded_col_names).copy().values.astype(np.float32)
@@ -254,7 +268,15 @@ def train_nn_airline(
         train_ds = get_self_confidence_rank_and_difficulties(
             X,
             y,
-            GeneralisedNeuralNetworkModel(embedding_sizes, 7),
+            GeneralisedNeuralNetworkModel(
+                embedding_sizes,
+                7,
+                n_class=1,
+                dropout=dropout,
+                emb_dropout=emb_dropout,
+                hidden_layers=hidden_layers,
+                features=features,
+            ),
             train_ds,
             torch.nn.BCEWithLogitsLoss,
             epochs,
@@ -267,7 +289,15 @@ def train_nn_airline(
         path_to_save_training_dynamics = Path("./") / "airline_training_dynamics"
 
         train_ds = get_cartography_rank_and_difficulties(
-            GeneralisedNeuralNetworkModel(embedding_sizes, 7),
+            GeneralisedNeuralNetworkModel(
+                embedding_sizes,
+                7,
+                n_class=1,
+                dropout=dropout,
+                emb_dropout=emb_dropout,
+                hidden_layers=hidden_layers,
+                features=features,
+            ),
             path_to_save_training_dynamics,
             train_ds,
             loss_fn,
@@ -285,9 +315,9 @@ def train_nn_airline(
         )
 
     to_device(model, device)
-    optim = get_optimizer(model, lr=lr, wd=wd)
+    optim = get_optimizer(model, optimizer=optimizer, lr=lr, wd=wd)
 
-    if rank_mode:
+    if ranked:
         train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=False)
     else:
         train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
@@ -357,6 +387,11 @@ def train_nn_spotify_tracks(
     epochs: int = 8,
     batch_size: int = 1000,
     lr: float = 0.01,
+    optimizer: str = "Adam",
+    hidden_layers: int = 1,
+    dropout: float = 0.5,
+    emb_dropout: float = 0.25,
+    features: int = 150,
     plot_map: bool = False,
     wd: float = 0.0,
 ) -> GeneralisedNeuralNetworkModel:
@@ -376,8 +411,17 @@ def train_nn_spotify_tracks(
 
     device = get_default_device()
     n_cont = len(X.columns) - len(embedded_cols)
+
     # n_class based on previous EDA
-    model = GeneralisedNeuralNetworkModel(embedding_sizes, n_cont, n_class=114)
+    model = GeneralisedNeuralNetworkModel(
+        embedding_sizes,
+        n_cont,
+        n_class=114,
+        dropout=dropout,
+        emb_dropout=emb_dropout,
+        hidden_layers=hidden_layers,
+        features=features,
+    )
 
     if rank_mode == "confidence":
         X1 = X_train.loc[:, embedded_col_names].copy().values.astype(np.int64)
@@ -391,7 +435,15 @@ def train_nn_spotify_tracks(
         train_ds = get_self_confidence_rank_and_difficulties(
             X,
             y,
-            GeneralisedNeuralNetworkModel(embedding_sizes, n_cont, n_class=114),
+            GeneralisedNeuralNetworkModel(
+                embedding_sizes,
+                n_cont,
+                n_class=114,
+                dropout=dropout,
+                emb_dropout=emb_dropout,
+                hidden_layers=hidden_layers,
+                features=features,
+            ),
             train_ds,
             torch.nn.CrossEntropyLoss,
             epochs,
@@ -406,7 +458,15 @@ def train_nn_spotify_tracks(
         )
 
         train_ds = get_cartography_rank_and_difficulties(
-            GeneralisedNeuralNetworkModel(embedding_sizes, n_cont, n_class=114),
+            GeneralisedNeuralNetworkModel(
+                embedding_sizes,
+                n_cont,
+                n_class=114,
+                dropout=dropout,
+                emb_dropout=emb_dropout,
+                hidden_layers=hidden_layers,
+                features=features,
+            ),
             path_to_save_training_dynamics,
             train_ds,
             loss_fn,
@@ -424,9 +484,9 @@ def train_nn_spotify_tracks(
         )
 
     to_device(model, device)
-    optim = get_optimizer(model, lr=lr, wd=wd)
+    optim = get_optimizer(model, optimizer=optimizer, lr=lr, wd=wd)
 
-    if rank_mode:
+    if ranked:
         train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=False)
     else:
         train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
@@ -508,6 +568,11 @@ def train_nn_credit_card(
     epochs: int = 8,
     batch_size: int = 1000,
     lr: float = 0.01,
+    optimizer: str = "Adam",
+    hidden_layers: int = 1,
+    dropout: float = 0.5,
+    emb_dropout: float = 0.25,
+    features: int = 150,
     plot_map: bool = False,
     wd: float = 0.0,
 ) -> GeneralisedNeuralNetworkModel:
@@ -522,7 +587,15 @@ def train_nn_credit_card(
     train_ds = CreditCardDataset(X_train, y_train)
     valid_ds = CreditCardDataset(X_val, y_val)
     device = get_default_device()
-    model = GeneralisedNeuralNetworkModel([], len(X_train[0]))
+    model = GeneralisedNeuralNetworkModel(
+        [],
+        len(X_train[0]),
+        n_class=1,
+        dropout=dropout,
+        emb_dropout=emb_dropout,
+        hidden_layers=hidden_layers,
+        features=features,
+    )
 
     if rank_mode == "confidence":
 
@@ -536,7 +609,15 @@ def train_nn_credit_card(
         train_ds = get_self_confidence_rank_and_difficulties(
             X,
             y,
-            GeneralisedNeuralNetworkModel([], len(X_train[0])),
+            GeneralisedNeuralNetworkModel(
+                [],
+                len(X_train[0]),
+                n_class=1,
+                dropout=dropout,
+                emb_dropout=emb_dropout,
+                hidden_layers=hidden_layers,
+                features=features,
+            ),
             train_ds,
             torch.nn.BCEWithLogitsLoss,
             epochs,
@@ -549,7 +630,15 @@ def train_nn_credit_card(
         path_to_save_training_dynamics = Path("./") / "card_fraud_training_dynamics"
 
         train_ds = get_cartography_rank_and_difficulties(
-            GeneralisedNeuralNetworkModel([], len(X_train[0])),
+            GeneralisedNeuralNetworkModel(
+                [],
+                len(X_train[0]),
+                n_class=1,
+                dropout=dropout,
+                emb_dropout=emb_dropout,
+                hidden_layers=hidden_layers,
+                features=features,
+            ),
             path_to_save_training_dynamics,
             train_ds,
             loss_fn,
@@ -567,9 +656,9 @@ def train_nn_credit_card(
         )
 
     to_device(model, device)
-    optim = get_optimizer(model, lr=lr, wd=wd)
+    optim = get_optimizer(model, optimizer=optimizer, lr=lr, wd=wd)
 
-    if rank_mode:
+    if ranked:
         train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=False)
     else:
         train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
@@ -645,6 +734,11 @@ def train_nn_stellar(
     epochs: int = 8,
     batch_size: int = 1000,
     lr: float = 0.01,
+    optimizer: str = "Adam",
+    hidden_layers: int = 1,
+    dropout: float = 0.5,
+    emb_dropout: float = 0.25,
+    features: int = 150,
     plot_map: bool = False,
     wd: float = 0.0,
 ) -> GeneralisedNeuralNetworkModel:
@@ -665,7 +759,15 @@ def train_nn_stellar(
     device = get_default_device()
     n_cont = len(X.columns) - len(embedded_cols)
     # n_class based on previous EDA
-    model = GeneralisedNeuralNetworkModel(embedding_sizes, n_cont, n_class=3)
+    model = GeneralisedNeuralNetworkModel(
+        embedding_sizes,
+        n_cont,
+        n_class=3,
+        dropout=dropout,
+        emb_dropout=emb_dropout,
+        hidden_layers=hidden_layers,
+        features=features,
+    )
 
     if rank_mode == "confidence":
         X1 = X_train.loc[:, embedded_col_names].copy().values.astype(np.int64)
@@ -679,7 +781,15 @@ def train_nn_stellar(
         train_ds = get_self_confidence_rank_and_difficulties(
             X,
             y,
-            GeneralisedNeuralNetworkModel(embedding_sizes, n_cont, n_class=3),
+            GeneralisedNeuralNetworkModel(
+                embedding_sizes,
+                n_cont,
+                n_class=3,
+                dropout=dropout,
+                emb_dropout=emb_dropout,
+                hidden_layers=hidden_layers,
+                features=features,
+            ),
             train_ds,
             torch.nn.CrossEntropyLoss,
             epochs,
@@ -692,7 +802,15 @@ def train_nn_stellar(
         path_to_save_training_dynamics = Path("./") / "stellar_training_dynamics"
 
         train_ds = get_cartography_rank_and_difficulties(
-            GeneralisedNeuralNetworkModel(embedding_sizes, n_cont, n_class=3),
+            GeneralisedNeuralNetworkModel(
+                embedding_sizes,
+                n_cont,
+                n_class=3,
+                dropout=dropout,
+                emb_dropout=emb_dropout,
+                hidden_layers=hidden_layers,
+                features=features,
+            ),
             path_to_save_training_dynamics,
             train_ds,
             loss_fn,
@@ -710,9 +828,9 @@ def train_nn_stellar(
         )
 
     to_device(model, device)
-    optim = get_optimizer(model, lr=lr, wd=wd)
+    optim = get_optimizer(model, optimizer=optimizer, lr=lr, wd=wd)
 
-    if rank_mode:
+    if ranked:
         train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=False)
     else:
         train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
@@ -794,6 +912,7 @@ def train_cnn_fashion_mnist(
     epochs: int = 8,
     batch_size: int = 1000,
     lr: float = 0.01,
+    optimizer: str = "Adam",
     plot_map: bool = False,
     wd: float = 0.0,
 ) -> GeneralisedNeuralNetworkModel:
@@ -806,7 +925,7 @@ def train_cnn_fashion_mnist(
 
     device = get_default_device()
     # n_class - 10 for Fashin MNIST
-    model = FashionMNISTModel(1, 32, 10)
+    model = FashionMNISTModel(1, 76, 10, 3, 1, 1, 4, 0, 2, 0.72003, 140)
 
     if rank_mode == "confidence":
         X = np.asarray(X_train, dtype=np.float32)
@@ -818,7 +937,7 @@ def train_cnn_fashion_mnist(
         train_ds = get_self_confidence_rank_and_difficulties(
             X,
             y,
-            FashionMNISTModel(1, 32, 10),
+            FashionMNISTModel(1, 76, 10, 3, 1, 1, 4, 0, 2, 0.72003, 140),
             train_ds,
             torch.nn.CrossEntropyLoss,
             epochs,
@@ -831,7 +950,7 @@ def train_cnn_fashion_mnist(
         path_to_save_training_dynamics = Path("./") / "fashion_mnist_training_dynamics"
 
         train_ds = get_cartography_rank_and_difficulties(
-            FashionMNISTModel(1, 32, 10),
+            FashionMNISTModel(1, 76, 10, 3, 1, 1, 4, 0, 2, 0.72003, 140),
             path_to_save_training_dynamics,
             train_ds,
             loss_fn,
@@ -849,9 +968,9 @@ def train_cnn_fashion_mnist(
         )
 
     to_device(model, device)
-    optim = get_optimizer(model, lr=lr, wd=wd)
+    optim = get_optimizer(model, optimizer=optimizer, lr=lr, wd=wd)
 
-    if rank_mode:
+    if ranked:
         train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=False)
     else:
         train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True)

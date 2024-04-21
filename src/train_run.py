@@ -25,9 +25,13 @@ def to_device(data, device):
     return data.to(device, non_blocking=True)
 
 
-def get_optimizer(model, lr=0.001, wd=0):
+def get_optimizer(model, optimizer='Adam', lr=0.001, wd=0):
     parameters = filter(lambda p: p.requires_grad, model.parameters())
-    optim = torch.optim.SGD(parameters, lr=lr, weight_decay=wd)
+    if optimizer == "Adam":
+        optim = torch.optim.Adam(parameters, lr=lr, weight_decay=wd)
+    else:
+        optim = torch.optim.SGD(parameters, lr=lr, weight_decay=wd)
+
     return optim
 
 

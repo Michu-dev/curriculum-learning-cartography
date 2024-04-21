@@ -65,11 +65,21 @@ def main(
         mlflow.set_tracking_uri("http://127.0.0.1:5000")
         mlflow.set_tag(
             "mlflow.runName",
-            f"{dataset}, rank_mode: {rank_mode}, relaxed: {relaxed}",
+            f"{dataset}, rank_mode: {rank_mode}, relaxed: {relaxed}, ranked: {ranked}",
         )
 
         if dataset == "airline_passenger_satisfaction":
             train_df, test_df, embedded_cols = preprocess_airline_data()
+
+            # Params from NAS/HT
+            batch_size = 32
+            lr = 0.000355
+            weight_decay = 0.03598
+            optimizer = "Adam"
+            hidden_layers = 2
+            dropout = 0.2973
+            emb_dropout = 0.2002
+            features = 361
 
             model = train_nn_airline(
                 train_df,
@@ -83,13 +93,29 @@ def main(
                 epochs=epochs,
                 batch_size=batch_size,
                 lr=lr,
+                optimizer=optimizer,
+                hidden_layers=hidden_layers,
+                dropout=dropout,
+                emb_dropout=emb_dropout,
+                features=features,
                 plot_map=plot_map,
+                wd=weight_decay,
             )
             test_acc = test_nn_airline(
                 model, test_df, embedded_cols, batch_size=batch_size
             )
         elif dataset == "credit_card":
             X_rem, X_test, y_rem, y_test, prop = preprocess_credit_card_ds()
+
+            # Params from NAS/HT
+            batch_size = 2048
+            lr = 0.04255
+            weight_decay = 0.06703
+            optimizer = "Adam"
+            hidden_layers = 2
+            dropout = 0.43460
+            emb_dropout = 0.35049
+            features = 207
 
             model = train_nn_credit_card(
                 X_rem,
@@ -104,11 +130,27 @@ def main(
                 epochs=epochs,
                 batch_size=batch_size,
                 lr=lr,
+                optimizer=optimizer,
+                hidden_layers=hidden_layers,
+                dropout=dropout,
+                emb_dropout=emb_dropout,
+                features=features,
                 plot_map=plot_map,
+                wd=weight_decay,
             )
             test_acc = test_nn_credit_card(model, X_test, y_test, batch_size=batch_size)
         elif dataset == "spotify_tracks":
             X_rem, X_test, y_rem, y_test, embedded_cols = preprocess_spotify_tracks_ds()
+
+            # Params from NAS/HT
+            batch_size = 64
+            lr = 0.000654
+            weight_decay = 0.00257
+            optimizer = "Adam"
+            hidden_layers = 1
+            dropout = 0.24486
+            emb_dropout = 0.56629
+            features = 397
 
             model = train_nn_spotify_tracks(
                 X_rem,
@@ -123,13 +165,29 @@ def main(
                 epochs=epochs,
                 batch_size=batch_size,
                 lr=lr,
+                optimizer=optimizer,
+                hidden_layers=hidden_layers,
+                dropout=dropout,
+                emb_dropout=emb_dropout,
+                features=features,
                 plot_map=plot_map,
+                wd=weight_decay,
             )
             test_acc = test_nn_spotify_tracks(
                 model, X_test, y_test, embedded_cols, batch_size=batch_size
             )
         elif dataset == "stellar":
             X_rem, X_test, y_rem, y_test, embedded_cols = preprocess_stellar_ds()
+
+            # Params from NAS/HT
+            batch_size = 128
+            lr = 0.000368
+            weight_decay = 0.0553
+            optimizer = "Adam"
+            hidden_layers = 2
+            dropout = 0.11415
+            emb_dropout = 0.38323
+            features = 271
 
             model = train_nn_stellar(
                 X_rem,
@@ -144,7 +202,13 @@ def main(
                 epochs=epochs,
                 batch_size=batch_size,
                 lr=lr,
+                optimizer=optimizer,
+                hidden_layers=hidden_layers,
+                dropout=dropout,
+                emb_dropout=emb_dropout,
+                features=features,
                 plot_map=plot_map,
+                wd=weight_decay,
             )
 
             test_acc = test_nn_stellar(
@@ -154,6 +218,13 @@ def main(
             train_data, test_data = get_fashion_mnist_data()
             X_rem, y_rem = map(list, zip(*[[x[0].numpy(), x[1]] for x in train_data]))
             X_test, y_test = map(list, zip(*[[x[0].numpy(), x[1]] for x in test_data]))
+
+            # Params from NAS/HT
+            # conv_layers, dense_layers = 2, 2
+            batch_size = 128
+            lr = 0.01933
+            weight_decay = 0.02574
+            optimizer = "SGD"
 
             model = train_cnn_fashion_mnist(
                 X_rem,
@@ -167,7 +238,9 @@ def main(
                 epochs=epochs,
                 batch_size=batch_size,
                 lr=lr,
+                optimizer=optimizer,
                 plot_map=plot_map,
+                wd=weight_decay,
             )
 
             test_acc = test_cnn_fashion_mnist(
@@ -179,7 +252,11 @@ def main(
         mlflow.log_param("epochs", epochs)
         mlflow.log_param("learning_rate", lr)
         mlflow.log_param("relaxed", relaxed)
+        mlflow.log_param("ranked", ranked)
         mlflow.log_param("ranking_mode", rank_mode)
+        mlflow.log_param("alpha", alpha)
+        mlflow.log_param("beta", beta)
+        mlflow.log_param("gamma", gamma)
 
         mlflow.set_tag("Purpose", "Initial comparison")
         mlflow.pytorch.log_model(model, "model")
