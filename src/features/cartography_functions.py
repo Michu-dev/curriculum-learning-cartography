@@ -17,6 +17,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def normalize_data(data: pd.Series) -> pd.Series:
+    return (data - np.min(data)) / (np.max(data) - np.min(data))
+
+
 def log_training_dynamics(
     output_dir: Path,
     epoch: int,
