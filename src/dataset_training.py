@@ -27,7 +27,6 @@ from skorch import NeuralNetClassifier
 from skorch.helper import SliceDict
 from sklearn.metrics import precision_score, recall_score, f1_score
 from sklearn.model_selection import train_test_split, cross_val_predict
-from sklearn.preprocessing import MinMaxScaler
 from sklearn.cluster import KMeans
 import mlflow
 from pathlib import Path
@@ -36,7 +35,6 @@ from imblearn.over_sampling import SMOTE
 import logging
 import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.metrics import adjusted_mutual_info_score, adjusted_rand_score
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s", level=logging.INFO
@@ -73,9 +71,9 @@ def get_self_confidence_rank_and_difficulties(
     y_qualities = get_self_confidence_for_each_label(
         y.astype(np.int64), pred_probs
     ).squeeze()
-    # difficulties = np.ones_like(y_qualities) - y_qualities
+
     examples_order = np.argsort(y_qualities)[::-1]
-    dataset.difficulties = y_qualities  # difficulties?
+    dataset.difficulties = y_qualities
 
     if ranked:
         dataset = Subset(dataset, indices=examples_order)
@@ -113,20 +111,12 @@ def get_cartography_rank_and_difficulties(
         path,
         binary=binary,
     )
-    # clustering -> assign examples to classes: easy-to-learn/ambiguous/hard-to-learn
-    # dimensionality reduction -> UMAP 2D -> 1D with higher classification maintenance | normalized weights of 2D features
     main_label, other_metric, cluster_num, difficulty_label = (
         "variability",
         "confidence",
         "labels",
         "difficulty",
     )
-    x_train = cartography_stats_df[[main_label, other_metric]]
-    x_train[main_label] = 2 * x_train[main_label]
-    kmeans_labels = KMeans(n_clusters=3, random_state=42, n_init="auto").fit_predict(
-        x_train
-    )
-    cartography_stats_df[cluster_num] = kmeans_labels
 
     # 2D -> 1D difficulty mapping for Data Cartography
     cartography_stats_df[difficulty_label] = (
@@ -151,6 +141,14 @@ def get_cartography_rank_and_difficulties(
             True,
             model.__class__.__name__,
         )
+        # clustering -> assign examples to classes: easy-to-learn/ambiguous/hard-to-learn
+        x_train = cartography_stats_df[[main_label, other_metric]]
+        x_train[main_label] = 2 * x_train[main_label]
+        kmeans_labels = KMeans(
+            n_clusters=3, random_state=42, n_init="auto"
+        ).fit_predict(x_train)
+        cartography_stats_df[cluster_num] = kmeans_labels
+
         # Plot clustering results
         sns.set(style="whitegrid", font_scale=1.6, font="Georgia", context="paper")
         fig, ax0 = plt.subplots(1, 1, figsize=(10, 8))
@@ -176,34 +174,10 @@ def get_cartography_rank_and_difficulties(
 
     y_qualities = np.ones(len(dataset), dtype=np.float32)
 
-    # embedding = umap.UMAP(n_components=1, random_state=42).fit_transform(
-    #     x_train, kmeans_labels
-    # )
-
-    # Interpolation mode - to consider
-    # embedding = (x_train[other_metric] + x_train[main_label]).values.reshape(-1, 1)
-    # embedding = MinMaxScaler().fit_transform(embedding)
-
-    # reduced_kmeans_labels = KMeans(
-    #     n_clusters=3, random_state=0, n_init="auto"
-    # ).fit_predict(embedding)
-    # embedding = embedding.reshape(-1)
-
     # Loop matching distributed training dynamics values with dataset
     for i, x in enumerate(dataset):
         curr_row_idx = cartography_stats_df.index[cartography_stats_df["guid"] == x[0]]
         y_qualities[i] = cartography_stats_df.loc[curr_row_idx, difficulty_label]
-
-    print(dataset[:10])
-    print(cartography_stats_df[cartography_stats_df["guid"].between(0, 9)])
-    print(y_qualities[:10])
-
-    # logger.info(
-    #     f"Adjusted_rand_score: {adjusted_rand_score(kmeans_labels, reduced_kmeans_labels)}"
-    # )
-    # logger.info(
-    #     f"Adjusted mutual information: {adjusted_mutual_info_score(kmeans_labels, reduced_kmeans_labels)}"
-    # )
 
     examples_order = np.argsort(y_qualities)[::-1]
     dataset.difficulties = y_qualities
@@ -330,48 +304,6 @@ def train_nn_airline(
     )
 
     return model
-
-
-def test_nn_airline(
-    model: GeneralisedNeuralNetworkModel,
-    test_df: pd.DataFrame,
-    embedded_cols: dict,
-    batch_size: int = 1000,
-) -> list:
-    embedded_col_names = embedded_cols.keys()
-    X, y = test_df.iloc[:, :-1], test_df.iloc[:, [-1]]
-    test_ds = AirlinePassengersDataset(X, y, embedded_col_names)
-    test_dl = DataLoader(test_ds, batch_size=batch_size)
-    device = get_default_device()
-    test_dl = DeviceDataLoader(test_dl, device)
-    all_preds, all_labels = [], []
-    total, correct = 0, 0
-    with torch.no_grad():
-        for _, x1, x2, y, _ in test_dl:
-            current_batch_size = y.shape[0]
-            out = model(x1, x2)
-            all_preds.extend(
-                F.sigmoid(out).round().cpu().detach().numpy().astype(int).tolist()
-            )
-            all_labels.extend(y.cpu().detach().numpy().astype(int).tolist())
-
-            total += current_batch_size
-            correct += (F.sigmoid(out).round() == y).float().sum()
-
-    all_labels = np.squeeze(np.array(all_labels).astype(int)).tolist()
-    all_preds = np.squeeze(np.array(all_preds).astype(int)).tolist()
-
-    precision = precision_score(all_labels, all_preds)
-    recall = recall_score(all_labels, all_preds)
-    f1score = f1_score(all_labels, all_preds)
-
-    mlflow.log_metric("test_acc", (correct / total))
-    mlflow.log_metric("precision", precision)
-    mlflow.log_metric("recall", recall)
-    mlflow.log_metric("f1_score", f1score)
-
-    logger.info("test accuracy %.3f " % (correct / total))
-    return float(correct) / total
 
 
 def train_nn_spotify_tracks(
@@ -508,53 +440,6 @@ def train_nn_spotify_tracks(
     return model
 
 
-def test_nn_spotify_tracks(
-    model: GeneralisedNeuralNetworkModel,
-    X: pd.DataFrame,
-    y: pd.DataFrame,
-    embedded_cols: dict,
-    batch_size: int = 1000,
-):
-    embedded_col_names = embedded_cols.keys()
-    test_ds = SpotifyTracksDataset(X, y, embedded_col_names)
-
-    test_dl = DataLoader(test_ds, batch_size=batch_size)
-    device = get_default_device()
-    test_dl = DeviceDataLoader(test_dl, device)
-
-    all_preds, all_labels = [], []
-    total, correct = 0, 0
-    with torch.no_grad():
-        for _, x1, x2, y, _ in test_dl:
-            current_batch_size = y.shape[0]
-            y = y.squeeze(dim=1)
-            out = model(x1, x2)
-            y_pred_softmax = F.log_softmax(out, dim=1)
-            _, y_pred_tags = torch.max(y_pred_softmax, dim=1)
-
-            all_preds.extend(y_pred_tags.cpu().detach().numpy().astype(int).tolist())
-            all_labels.extend(y.cpu().detach().numpy().astype(int).tolist())
-
-            total += current_batch_size
-
-            correct += (y_pred_tags == y.squeeze()).float().sum()
-
-    all_labels = np.squeeze(np.array(all_labels).astype(int)).tolist()
-    all_preds = np.squeeze(np.array(all_preds).astype(int)).tolist()
-
-    precision = precision_score(all_labels, all_preds, average="micro")
-    recall = recall_score(all_labels, all_preds, average="micro")
-    f1score = f1_score(all_labels, all_preds, average="micro")
-
-    mlflow.log_metric("test_acc", (correct / total))
-    mlflow.log_metric("micro_precision", precision)
-    mlflow.log_metric("micro_recall", recall)
-    mlflow.log_metric("micro_f1_score", f1score)
-
-    logger.info("test accuracy %.3f " % (correct / total))
-    return float(correct) / total
-
-
 def train_nn_credit_card(
     X: pd.DataFrame,
     y: pd.DataFrame,
@@ -677,48 +562,6 @@ def train_nn_credit_card(
     )
 
     return model
-
-
-def test_nn_credit_card(
-    model: GeneralisedNeuralNetworkModel,
-    X: pd.DataFrame,
-    y: pd.DataFrame,
-    batch_size: int = 1000,
-) -> float:
-    test_ds = CreditCardDataset(X, y)
-    test_dl = DataLoader(test_ds, batch_size=batch_size)
-    device = get_default_device()
-    test_dl = DeviceDataLoader(test_dl, device)
-    all_preds, all_labels = [], []
-    total, correct = 0, 0
-    with torch.no_grad():
-        for _, x1, x2, y, _ in test_dl:
-            current_batch_size = y.shape[0]
-            out = model(x1, x2)
-
-            all_preds.extend(
-                F.sigmoid(out).round().cpu().detach().numpy().astype(int).tolist()
-            )
-            all_labels.extend(y.cpu().detach().numpy().astype(int).tolist())
-
-            total += current_batch_size
-            correct += (F.sigmoid(out).round() == y).float().sum()
-
-    all_labels = np.squeeze(np.array(all_labels).astype(int)).tolist()
-    all_preds = np.squeeze(np.array(all_preds).astype(int)).tolist()
-
-    # metrics for imbalanced data model
-    precision = precision_score(all_labels, all_preds)
-    recall = recall_score(all_labels, all_preds)
-    f1score = f1_score(all_labels, all_preds)
-
-    mlflow.log_metric("test_acc", (correct / total))
-    mlflow.log_metric("precision", precision)
-    mlflow.log_metric("recall", recall)
-    mlflow.log_metric("f1_score", f1score)
-
-    logger.info("test accuracy %.3f " % (correct / total))
-    return float(correct) / total
 
 
 def train_nn_stellar(
@@ -852,54 +695,6 @@ def train_nn_stellar(
     return model
 
 
-def test_nn_stellar(
-    model: GeneralisedNeuralNetworkModel,
-    X: pd.DataFrame,
-    y: pd.DataFrame,
-    embedded_cols: dict,
-    batch_size: int = 1000,
-):
-    embedded_col_names = embedded_cols.keys()
-    test_ds = StellarDataset(X, y, embedded_col_names)
-
-    test_dl = DataLoader(test_ds, batch_size=batch_size)
-    device = get_default_device()
-    test_dl = DeviceDataLoader(test_dl, device)
-
-    all_preds, all_labels = [], []
-    total, correct = 0, 0
-    with torch.no_grad():
-        for _, x1, x2, y, _ in test_dl:
-            current_batch_size = y.shape[0]
-            if 1 in list(y.shape):
-                y = y.squeeze(dim=1)
-            out = model(x1, x2)
-            y_pred_softmax = F.log_softmax(out, dim=1)
-            _, y_pred_tags = torch.max(y_pred_softmax, dim=1)
-
-            all_preds.extend(y_pred_tags.cpu().detach().numpy().astype(int).tolist())
-            all_labels.extend(y.cpu().detach().numpy().astype(int).tolist())
-
-            total += current_batch_size
-
-            correct += (y_pred_tags == y.squeeze()).float().sum()
-
-    all_labels = np.squeeze(np.array(all_labels).astype(int)).tolist()
-    all_preds = np.squeeze(np.array(all_preds).astype(int)).tolist()
-
-    precision = precision_score(all_labels, all_preds, average="micro")
-    recall = recall_score(all_labels, all_preds, average="micro")
-    f1score = f1_score(all_labels, all_preds, average="micro")
-
-    mlflow.log_metric("test_acc", (correct / total))
-    mlflow.log_metric("micro_precision", precision)
-    mlflow.log_metric("micro_recall", recall)
-    mlflow.log_metric("micro_f1_score", f1score)
-
-    logger.info("test accuracy %.3f " % (correct / total))
-    return float(correct) / total
-
-
 def train_cnn_fashion_mnist(
     X: torch.Tensor,
     y: torch.Tensor,
@@ -992,47 +787,70 @@ def train_cnn_fashion_mnist(
     return model
 
 
-def test_cnn_fashion_mnist(
-    model: FashionMNISTDataset,
-    X: torch.Tensor,
-    y: torch.Tensor,
+def test_nn(
+    model: GeneralisedNeuralNetworkModel | FashionMNISTModel,
+    X: pd.DataFrame,
+    y: pd.DataFrame,
+    embedded_cols: dict,
+    dataset_name: str = "credit_card",
     batch_size: int = 1000,
-):
-    test_ds = FashionMNISTDataset(X, y)
+    bin=True,
+) -> list:
+
+    if dataset_name == "airline_passenger_satisfaction":
+        embedded_col_names = embedded_cols.keys()
+        test_ds = AirlinePassengersDataset(X, y, embedded_col_names)
+    elif dataset_name == "credit_card":
+        test_ds = CreditCardDataset(X, y)
+    elif dataset_name == "spotify_tracks":
+        embedded_col_names = embedded_cols.keys()
+        test_ds = SpotifyTracksDataset(X, y, embedded_col_names)
+    elif dataset_name == "stellar":
+        embedded_col_names = embedded_cols.keys()
+        test_ds = StellarDataset(X, y, embedded_col_names)
+    elif dataset_name == "fashion_mnist":
+        test_ds = FashionMNISTDataset(X, y)
 
     test_dl = DataLoader(test_ds, batch_size=batch_size)
     device = get_default_device()
     test_dl = DeviceDataLoader(test_dl, device)
-
     all_preds, all_labels = [], []
     total, correct = 0, 0
+    model.eval()
     with torch.no_grad():
         for _, x1, x2, y, _ in test_dl:
             current_batch_size = y.shape[0]
-            if 1 in list(y.shape):
+            if 1 in list(y.shape) and not bin:
                 y = y.squeeze(dim=1)
             out = model(x1, x2)
-            y_pred_softmax = F.log_softmax(out, dim=1)
-            _, y_pred_tags = torch.max(y_pred_softmax, dim=1)
-
+            if not bin:
+                y_pred_softmax = F.log_softmax(out, dim=1)
+                _, y_pred_tags = torch.max(y_pred_softmax, dim=1)
+                correct += (y_pred_tags == y.squeeze()).float().sum()
+            else:
+                y_pred_tags = F.sigmoid(out).round()
+                correct += (F.sigmoid(out).round() == y).float().sum()
             all_preds.extend(y_pred_tags.cpu().detach().numpy().astype(int).tolist())
             all_labels.extend(y.cpu().detach().numpy().astype(int).tolist())
 
             total += current_batch_size
 
-            correct += (y_pred_tags == y.squeeze()).float().sum()
-
     all_labels = np.squeeze(np.array(all_labels).astype(int)).tolist()
     all_preds = np.squeeze(np.array(all_preds).astype(int)).tolist()
 
-    precision = precision_score(all_labels, all_preds, average="micro")
-    recall = recall_score(all_labels, all_preds, average="micro")
-    f1score = f1_score(all_labels, all_preds, average="micro")
+    if bin:
+        precision = precision_score(all_labels, all_preds)
+        recall = recall_score(all_labels, all_preds)
+        f1score = f1_score(all_labels, all_preds)
+    else:
+        precision = precision_score(all_labels, all_preds, average="micro")
+        recall = recall_score(all_labels, all_preds, average="micro")
+        f1score = f1_score(all_labels, all_preds, average="micro")
 
     mlflow.log_metric("test_acc", (correct / total))
-    mlflow.log_metric("micro_precision", precision)
-    mlflow.log_metric("micro_recall", recall)
-    mlflow.log_metric("micro_f1_score", f1score)
+    mlflow.log_metric("precision", precision)
+    mlflow.log_metric("recall", recall)
+    mlflow.log_metric("f1_score", f1score)
 
     logger.info("test accuracy %.3f " % (correct / total))
     return float(correct) / total

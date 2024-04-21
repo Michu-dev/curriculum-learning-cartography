@@ -9,15 +9,11 @@ from .data.stellar_ds import preprocess_stellar_ds
 from .data.fashion_mnist import get_fashion_mnist_data
 from .dataset_training import (
     train_nn_airline,
-    test_nn_airline,
     train_nn_credit_card,
-    test_nn_credit_card,
     train_nn_spotify_tracks,
-    test_nn_spotify_tracks,
     train_nn_stellar,
-    test_nn_stellar,
     train_cnn_fashion_mnist,
-    test_cnn_fashion_mnist,
+    test_nn,
 )
 import torch
 import numpy as np
@@ -57,7 +53,7 @@ def main(
     beta: float = None,
     gamma: float = 2.0,
 ):
-    mlflow.set_experiment("fashion_mnist_cnn")
+    mlflow.set_experiment("demo_experiments")
     torch.manual_seed(0)
     np.random.seed(0)
     torch.use_deterministic_algorithms(True)
@@ -101,8 +97,15 @@ def main(
                 plot_map=plot_map,
                 wd=weight_decay,
             )
-            test_acc = test_nn_airline(
-                model, test_df, embedded_cols, batch_size=batch_size
+            X, y = test_df.iloc[:, :-1], test_df.iloc[:, [-1]]
+            test_acc = test_nn(
+                model,
+                X,
+                y,
+                embedded_cols,
+                dataset_name=dataset,
+                batch_size=batch_size,
+                bin=True,
             )
         elif dataset == "credit_card":
             X_rem, X_test, y_rem, y_test, prop = preprocess_credit_card_ds()
@@ -138,7 +141,15 @@ def main(
                 plot_map=plot_map,
                 wd=weight_decay,
             )
-            test_acc = test_nn_credit_card(model, X_test, y_test, batch_size=batch_size)
+            test_acc = test_nn(
+                model,
+                X_test,
+                y_test,
+                dict(),
+                dataset_name=dataset,
+                batch_size=batch_size,
+                bin=True,
+            )
         elif dataset == "spotify_tracks":
             X_rem, X_test, y_rem, y_test, embedded_cols = preprocess_spotify_tracks_ds()
 
@@ -173,8 +184,14 @@ def main(
                 plot_map=plot_map,
                 wd=weight_decay,
             )
-            test_acc = test_nn_spotify_tracks(
-                model, X_test, y_test, embedded_cols, batch_size=batch_size
+            test_acc = test_nn(
+                model,
+                X_test,
+                y_test,
+                embedded_cols,
+                dataset_name=dataset,
+                batch_size=batch_size,
+                bin=False,
             )
         elif dataset == "stellar":
             X_rem, X_test, y_rem, y_test, embedded_cols = preprocess_stellar_ds()
@@ -211,8 +228,14 @@ def main(
                 wd=weight_decay,
             )
 
-            test_acc = test_nn_stellar(
-                model, X_test, y_test, embedded_cols, batch_size=batch_size
+            test_acc = test_nn(
+                model,
+                X_test,
+                y_test,
+                embedded_cols,
+                dataset_name=dataset,
+                batch_size=batch_size,
+                bin=False,
             )
         elif dataset == "fashion_mnist":
             train_data, test_data = get_fashion_mnist_data()
@@ -243,8 +266,14 @@ def main(
                 wd=weight_decay,
             )
 
-            test_acc = test_cnn_fashion_mnist(
-                model, X_test, y_test, batch_size=batch_size
+            test_acc = test_nn(
+                model,
+                X_test,
+                y_test,
+                dict(),
+                dataset_name=dataset,
+                batch_size=batch_size,
+                bin=False,
             )
 
         mlflow.log_param("dataset", dataset)
