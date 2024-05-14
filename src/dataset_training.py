@@ -36,6 +36,7 @@ from imblearn.over_sampling import SMOTE
 import logging
 import matplotlib.pyplot as plt
 import seaborn as sns
+import json
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s", level=logging.INFO
@@ -47,6 +48,7 @@ def get_self_confidence_rank_and_difficulties(
     X: dict,
     y: np.ndarray,
     model: GeneralisedNeuralNetworkModel | FashionMNISTModel,
+    path: Path,
     dataset: Dataset,
     loss_fn,
     epochs: int,
@@ -54,24 +56,36 @@ def get_self_confidence_rank_and_difficulties(
     ranked: bool,
     lr: float,
 ) -> Subset | Dataset:
-    skorch_model = NeuralNetClassifier(
-        model,
-        criterion=loss_fn,
-        max_epochs=epochs,
-        batch_size=batch_size,
-        lr=lr,
-    )
-    X_skorch = SliceDict(**X)
-    pred_probs = cross_val_predict(
-        skorch_model,
-        X_skorch,
-        y,
-        cv=5,
-        method="predict_proba",
-    )
-    y_qualities = get_self_confidence_for_each_label(
-        y.astype(np.int64), pred_probs
-    ).squeeze()
+    path = path / "self_confidence"
+    file_name = path / "self_confidence.jsonl"
+    if not path.exists():
+        path.mkdir(parents=True, exist_ok=True)
+        skorch_model = NeuralNetClassifier(
+            model,
+            criterion=loss_fn,
+            max_epochs=epochs,
+            batch_size=batch_size,
+            lr=lr,
+        )
+        X_skorch = SliceDict(**X)
+        pred_probs = cross_val_predict(
+            skorch_model,
+            X_skorch,
+            y,
+            cv=10,
+            method="predict_proba",
+        )
+        y_qualities = get_self_confidence_for_each_label(
+            y.astype(np.int64), pred_probs
+        ).squeeze()
+
+        with open(file_name, "w") as file:
+            json.dump(y_qualities.tolist(), file)
+
+    else:
+        with open(file_name, "r") as file:
+            data = json.load(file)
+            y_qualities = np.array(data)
 
     examples_order = np.argsort(y_qualities)[::-1]
     dataset.difficulties = y_qualities
@@ -134,6 +148,7 @@ def get_cartography_rank_and_difficulties(
     cartography_stats_df[difficulty_label] = normalize_data(
         cartography_stats_df[difficulty_label]
     )
+
     if plot_flag:
         plot_cartography_map(
             cartography_stats_df,
@@ -177,8 +192,13 @@ def get_cartography_rank_and_difficulties(
 
     # Loop matching distributed training dynamics values with dataset
     for i, x in enumerate(dataset):
-        curr_row_idx = cartography_stats_df.index[cartography_stats_df["guid"] == x[0]]
-        y_qualities[i] = cartography_stats_df.loc[curr_row_idx, difficulty_label]
+        # curr_row_idx = cartography_stats_df.index[cartography_stats_df["guid"] == x[0]]
+        # y_qualities[i] = cartography_stats_df.loc[curr_row_idx, difficulty_label]
+        y_qualities[i] = (
+            cartography_stats_df[difficulty_label]
+            .to_numpy()[cartography_stats_df["guid"].to_numpy() == x[0]]
+            .item()
+        )
 
     examples_order = np.argsort(y_qualities)[::-1]
     dataset.difficulties = y_qualities
@@ -240,6 +260,7 @@ def train_nn_airline(
             "x_cat": X1,
             "x_cont": X2,
         }
+        path_to_save_self_confidence = Path("./") / "airline_training_dynamics"
         train_ds = get_self_confidence_rank_and_difficulties(
             X,
             y,
@@ -252,6 +273,7 @@ def train_nn_airline(
                 hidden_layers=hidden_layers,
                 features=features,
             ),
+            path_to_save_self_confidence,
             train_ds,
             torch.nn.BCEWithLogitsLoss,
             epochs,
@@ -365,6 +387,9 @@ def train_nn_spotify_tracks(
             "x_cont": X2,
         }
         n_cont = len(X_train.columns) - len(embedded_cols)
+        path_to_save_self_confidence = (
+            Path("./") / "spotify_tracks_genre_training_dynamics"
+        )
         train_ds = get_self_confidence_rank_and_difficulties(
             X,
             y,
@@ -377,6 +402,7 @@ def train_nn_spotify_tracks(
                 hidden_layers=hidden_layers,
                 features=features,
             ),
+            path_to_save_self_confidence,
             train_ds,
             torch.nn.CrossEntropyLoss,
             epochs,
@@ -494,6 +520,7 @@ def train_nn_credit_card(
             "x_cat": np.zeros(X.shape[0], dtype=np.float32),
             "x_cont": X,
         }
+        path_to_save_self_confidence = Path("./") / "card_fraud_training_dynamics"
         train_ds = get_self_confidence_rank_and_difficulties(
             X,
             y,
@@ -506,6 +533,7 @@ def train_nn_credit_card(
                 hidden_layers=hidden_layers,
                 features=features,
             ),
+            path_to_save_self_confidence,
             train_ds,
             torch.nn.BCEWithLogitsLoss,
             epochs,
@@ -624,6 +652,7 @@ def train_nn_stellar(
             "x_cont": X2,
         }
         n_cont = len(X_train.columns) - len(embedded_cols)
+        path_to_save_self_confidence = Path("./") / "stellar_training_dynamics"
         train_ds = get_self_confidence_rank_and_difficulties(
             X,
             y,
@@ -636,6 +665,7 @@ def train_nn_stellar(
                 hidden_layers=hidden_layers,
                 features=features,
             ),
+            path_to_save_self_confidence,
             train_ds,
             torch.nn.CrossEntropyLoss,
             epochs,
@@ -723,7 +753,7 @@ def train_cnn_fashion_mnist(
 
     device = get_default_device()
     # n_class - 10 for Fashion MNIST
-    model = FashionMNISTModel(1, 76, 10, 3, 1, 1, 4, 0, 2, 0.72003, 140)
+    model = FashionMNISTModel(1, 37, 10, 4, 0, 2, 2, 0, 2, 0.14825, 185)
 
     if rank_mode == "confidence":
         X = np.asarray(X_train, dtype=np.float32)
@@ -732,10 +762,12 @@ def train_cnn_fashion_mnist(
             "x": X,
             "x1": np.ones(X.shape),
         }
+        path_to_save_self_confidence = Path("./") / "fashion_mnist_training_dynamics"
         train_ds = get_self_confidence_rank_and_difficulties(
             X,
             y,
-            FashionMNISTModel(1, 76, 10, 3, 1, 1, 4, 0, 2, 0.72003, 140),
+            FashionMNISTModel(1, 37, 10, 4, 0, 2, 2, 0, 2, 0.14825, 185),
+            path_to_save_self_confidence,
             train_ds,
             torch.nn.CrossEntropyLoss,
             epochs,
@@ -748,7 +780,7 @@ def train_cnn_fashion_mnist(
         path_to_save_training_dynamics = Path("./") / "fashion_mnist_training_dynamics"
 
         train_ds = get_cartography_rank_and_difficulties(
-            FashionMNISTModel(1, 76, 10, 3, 1, 1, 4, 0, 2, 0.72003, 140),
+            FashionMNISTModel(1, 37, 10, 4, 0, 2, 2, 0, 2, 0.14825, 185),
             path_to_save_training_dynamics,
             train_ds,
             loss_fn,

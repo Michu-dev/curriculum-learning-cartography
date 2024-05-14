@@ -73,7 +73,7 @@ class FashionMNISTModel(nn.Module):
         self.classifier = nn.Sequential(
             nn.Flatten(),
             nn.Linear(
-                in_features=3800,
+                in_features=74,
                 out_features=4 * features,
             ),
             nn.Dropout(dropout),

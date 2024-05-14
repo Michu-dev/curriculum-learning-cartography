@@ -19,6 +19,7 @@ import torch
 import numpy as np
 import plac
 import mlflow
+import warnings
 
 
 @plac.opt("dataset", "Dataset to use for NN model evaluation", str, "d")
@@ -53,10 +54,11 @@ def main(
     beta: float = None,
     gamma: float = 2.0,
 ):
-    mlflow.set_experiment("demo_experiments")
-    torch.manual_seed(0)
-    np.random.seed(0)
-    torch.use_deterministic_algorithms(True)
+    mlflow.set_experiment("credit_card_ds_experiments")
+    # torch.manual_seed(42)
+    # np.random.seed(42)
+    warnings.filterwarnings("ignore")
+    # torch.use_deterministic_algorithms(True)
     with mlflow.start_run():
         mlflow.set_tracking_uri("http://127.0.0.1:5000")
         mlflow.set_tag(
@@ -68,14 +70,14 @@ def main(
             train_df, test_df, embedded_cols = preprocess_airline_data()
 
             # Params from NAS/HT
-            batch_size = 32
-            lr = 0.000355
-            weight_decay = 0.03598
+            batch_size = 512
+            lr = 0.000309
+            weight_decay = 0.04088
             optimizer = "Adam"
             hidden_layers = 2
-            dropout = 0.2973
-            emb_dropout = 0.2002
-            features = 361
+            dropout = 0.3327
+            emb_dropout = 0.2073
+            features = 300
 
             model = train_nn_airline(
                 train_df,
@@ -244,10 +246,10 @@ def main(
 
             # Params from NAS/HT
             # conv_layers, dense_layers = 2, 2
-            batch_size = 128
-            lr = 0.01933
-            weight_decay = 0.02574
-            optimizer = "SGD"
+            batch_size = 512
+            lr = 0.00034
+            weight_decay = 0.00739
+            optimizer = "Adam"
 
             model = train_cnn_fashion_mnist(
                 X_rem,
@@ -287,8 +289,8 @@ def main(
         mlflow.log_param("beta", beta)
         mlflow.log_param("gamma", gamma)
 
-        mlflow.set_tag("Purpose", "Initial comparison")
-        mlflow.pytorch.log_model(model, "model")
+        mlflow.set_tag("Purpose", "T-Student Test")
+        # mlflow.pytorch.log_model(model, "model")
 
 
 if __name__ == "__main__":

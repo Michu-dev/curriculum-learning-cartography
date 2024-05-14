@@ -237,14 +237,14 @@ def data_cartography(
                 list(train_golds),
             )
 
-    training_dynamics = read_training_dynamics(path_to_save_training_dynamics)
-    confidence_ = {}
-    variability_ = {}
-    correctness_ = {}
     cartography_dir = path_to_save_training_dynamics / "td_metrics"
     td_metrics_filename = cartography_dir / "td_metrics.jsonl"
 
     if not cartography_dir.exists():
+        training_dynamics = read_training_dynamics(path_to_save_training_dynamics)
+        confidence_ = {}
+        variability_ = {}
+        correctness_ = {}
         cartography_dir.mkdir(parents=True, exist_ok=True)
         logger.info(
             f"Compute training dynamic metrics for {len(training_dynamics)} train instances."

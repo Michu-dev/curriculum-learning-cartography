@@ -101,3 +101,6 @@ fashion_mnist_training_dynamics/
 
 # Data
 data/processed/FashionMNIST/
+
+# Experiments results table
+results.xlsx

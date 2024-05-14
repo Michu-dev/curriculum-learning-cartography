@@ -28,7 +28,7 @@ def to_device(data, device):
 def get_optimizer(model, optimizer="Adam", lr=0.001, wd=0):
     parameters = filter(lambda p: p.requires_grad, model.parameters())
     if optimizer == "Adam":
-        optim = torch.optim.Adam(parameters, lr=lr, weight_decay=wd)
+        optim = torch.optim.AdamW(parameters, lr=lr, weight_decay=wd)
     else:
         optim = torch.optim.SGD(parameters, lr=lr, weight_decay=wd)
 
