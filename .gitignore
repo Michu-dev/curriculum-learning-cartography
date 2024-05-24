@@ -104,3 +104,4 @@ data/processed/FashionMNIST/
 
 # Experiments results table
 results.xlsx
+training_history.csv
