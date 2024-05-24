@@ -54,7 +54,7 @@ def main(
     beta: float = None,
     gamma: float = 2.0,
 ):
-    mlflow.set_experiment("credit_card_ds_experiments")
+    mlflow.set_experiment("demo_experiments")
     # torch.manual_seed(42)
     # np.random.seed(42)
     warnings.filterwarnings("ignore")
