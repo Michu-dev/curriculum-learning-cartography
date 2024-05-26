@@ -21,14 +21,14 @@ def setup_parser() -> argparse.ArgumentParser:
             "fashion_mnist",
         ],
         default="stellar",
-        help="set the dataset to plot metrics history or conduct paired t-test",
+        help="set the dataset to plot metrics history or conduct independent t-test",
     )
     parser.add_argument(
         "-m",
         action="store",
         choices=["train_loss", "valid_loss", "valid_accuracy", "test_acc", "f1_score"],
         default="train_loss",
-        help="set the metric to plot or conduct paired t-test",
+        help="set the metric to plot or conduct independent t-test",
     )
 
     parser.add_argument(
@@ -42,7 +42,7 @@ def setup_parser() -> argparse.ArgumentParser:
         action="store",
         choices=["None", "cartography", "confidence"],
         default="None",
-        help="set ranking_mode for paired t-test - probe 1",
+        help="set ranking_mode for independent t-test - probe 1",
     )
 
     parser.add_argument(
@@ -50,32 +50,47 @@ def setup_parser() -> argparse.ArgumentParser:
         action="store",
         choices=["None", "cartography", "confidence"],
         default="None",
-        help="set ranking_mode for paired t-test - probe 2",
+        help="set ranking_mode for independent t-test - probe 2",
     )
 
     parser.add_argument(
         "-rnk1",
         action="store_true",
-        help="set ranked boolean for paired t-test - probe 1",
+        help="set ranked boolean for independent t-test - probe 1",
     )
 
     parser.add_argument(
         "-rnk2",
         action="store_true",
-        help="set ranked boolean for paired t-test - probe 2",
+        help="set ranked boolean for independent t-test - probe 2",
     )
 
     parser.add_argument(
         "-rl1",
         action="store_true",
-        help="set relaxed boolean for paired t-test - probe 1",
+        help="set relaxed boolean for independent t-test - probe 1",
     )
 
     parser.add_argument(
         "-rl2",
         action="store_true",
-        help="set relaxed boolean for paired t-test - probe 2",
+        help="set relaxed boolean for independent t-test - probe 2",
     )
+
+    parser.add_argument(
+        "-g1",
+        type=float,
+        choices=[1.5, 2.0, 2.5, 5.0],
+        help="set gamma value for independent t-test - probe 1",
+    )
+
+    parser.add_argument(
+        "-g2",
+        type=float,
+        choices=[1.5, 2.0, 2.5, 5.0],
+        help="set gamma value for independent t-test - probe 2",
+    )
+
     return parser
 
 
@@ -121,16 +136,15 @@ def get_methods_df(experiments_df: pd.DataFrame, with_agg: bool = True) -> pd.Da
 
 
 def get_gammas_df(experiments_df: pd.DataFrame, with_agg: bool = True) -> pd.DataFrame:
-    experiments_df = experiments_df[experiments_df["relaxed"] == True]
+    results_df = experiments_df[experiments_df["relaxed"] == True]
     if with_agg:
         grouping_cols = ["dataset", "ranking_mode", "ranked", "gamma"]
-
         agg_functions = {
             "test_acc": ["mean", "std"],
             "f1_score": ["mean", "std"],
             "train_loss": ["mean", "std"],
         }
-        results_df = experiments_df.groupby(grouping_cols).agg(agg_functions)
+        results_df = results_df.groupby(grouping_cols).agg(agg_functions)
     return results_df
 
 
@@ -139,10 +153,11 @@ def get_plots_data(
 ) -> pd.DataFrame:
     if comparison_type == "methods":
         experiments_df = get_methods_df(experiments_df, with_agg=False)
+        grouping_cols = ["dataset", "ranking_mode", "ranked", "relaxed"]
     else:
         experiments_df = get_gammas_df(experiments_df, with_agg=False)
+        grouping_cols = ["dataset", "ranking_mode", "ranked", "gamma"]
 
-    grouping_cols = ["dataset", "ranking_mode", "ranked", "relaxed"]
     dict_len = len(eval(experiments_df["train_loss"].iloc[0]))
     experiments_df["train_loss"] = experiments_df["train_loss"].map(eval)
     experiments_df["valid_loss"] = experiments_df["valid_loss"].map(eval)
@@ -178,34 +193,57 @@ def get_plots_data(
     return results_df
 
 
-def plot_training_progress(agg_df: pd.DataFrame, dataset: str, metric: str):
+def plot_training_progress(
+    agg_df: pd.DataFrame, dataset: str, metric: str, comparison_type: str = "methods"
+):
     ds_agg_df = agg_df[agg_df.index.get_level_values(0) == dataset]
     x = list(range(1, 9))
 
     # fig, axs = plt.subplots(3)
+    if comparison_type == "methods":
+        variants = [
+            ("None", False, False),
+            ("cartography", False, True),
+            ("cartography", True, False),
+            ("cartography", True, True),
+            ("confidence", False, True),
+            ("confidence", True, False),
+            ("confidence", True, True),
+        ]
+    else:
+        variants = [
+            ("cartography", False, 1.5),
+            ("cartography", False, 2),
+            ("cartography", False, 2.5),
+            ("cartography", False, 5),
+            ("cartography", True, 1.5),
+            ("cartography", True, 2),
+            ("cartography", True, 2.5),
+            ("cartography", True, 5),
+            ("confidence", False, 1.5),
+            ("confidence", False, 2),
+            ("confidence", False, 2.5),
+            ("confidence", False, 5),
+            ("confidence", True, 1.5),
+            ("confidence", True, 2),
+            ("confidence", True, 2.5),
+            ("confidence", True, 5),
+        ]
 
-    variants = [
-        ("None", False, False),
-        ("cartography", False, True),
-        ("cartography", True, False),
-        ("cartography", True, True),
-        ("confidence", False, True),
-        ("confidence", True, False),
-        ("confidence", True, True),
-    ]
-    # metrics = ("train_loss", "valid_loss", "valid_accuracy")
+        # metrics = ("train_loss", "valid_loss", "valid_accuracy")
 
-    for ranking_mode, ranked, relaxed in variants:
+    relaxed_gamma_tag = "relaxed" if comparison_type == "methods" else "gamma"
+    for ranking_mode, ranked, relaxed_or_gamma in variants:
         means, stds = [], []
         for i in range(8):
             mean = ds_agg_df[
                 (ds_agg_df.index.get_level_values(2) == ranked)
-                & (ds_agg_df.index.get_level_values(3) == relaxed)
+                & (ds_agg_df.index.get_level_values(3) == relaxed_or_gamma)
                 & (ds_agg_df.index.get_level_values(1) == ranking_mode)
             ][(f"{metric}_{i}", "mean")]
             std = ds_agg_df[
                 (ds_agg_df.index.get_level_values(2) == ranked)
-                & (ds_agg_df.index.get_level_values(3) == relaxed)
+                & (ds_agg_df.index.get_level_values(3) == relaxed_or_gamma)
                 & (ds_agg_df.index.get_level_values(1) == ranking_mode)
             ][(f"{metric}_{i}", "std")]
             means.append(float(mean))
@@ -214,7 +252,7 @@ def plot_training_progress(agg_df: pd.DataFrame, dataset: str, metric: str):
         plt.plot(
             x,
             means,
-            label=f"ranking_mode: {ranking_mode}, ranked: {ranked}, relaxed: {relaxed}",
+            label=f"ranking_mode: {ranking_mode}, ranked: {ranked}, {relaxed_gamma_tag}: {relaxed_or_gamma}",
         )
         plt.fill_between(x, np.subtract(means, stds), np.add(means, stds), alpha=0.2)
 
@@ -225,10 +263,16 @@ def plot_training_progress(agg_df: pd.DataFrame, dataset: str, metric: str):
     # axs[n].set_xlabel("Epoch number")
     # axs[n].set_ylabel(metric)
 
-    plt.title(f"Training {metric} metric plot for {dataset}")
+    plt.title(f"Training {metric} metric plot for {dataset}", y=1.08)
     plt.xlabel("Epoch number")
     plt.ylabel(metric)
-    plt.legend()
+    plt.legend(
+        loc="upper center",
+        bbox_to_anchor=(0.5, 1.05),
+        ncol=3,
+        fancybox=True,
+        shadow=True,
+    )
 
     # plt.tight_layout()
     plt.show()
@@ -287,6 +331,7 @@ if __name__ == "__main__":
     ranking_mode_1, ranking_mode_2 = args.rm1, args.rm2
     ranked_1, ranked_2 = args.rnk1, args.rnk2
     relaxed_1, relaxed_2 = args.rl1, args.rl2
+    gamma_1, gamma_2 = args.g1, args.g2
 
     experiment_names = [
         "airline_ds_experiments",
@@ -298,7 +343,8 @@ if __name__ == "__main__":
     if test_mode:
         experiments_df = read_experiments(experiment_names)
 
-        experiments_df = get_methods_df(experiments_df, False)
+        experiments_df = get_methods_df(experiments_df, with_agg=False)
+        # experiments_df = get_gammas_df(experiments_df, with_agg=False)
 
         print(
             f"First method: ranked: {ranked_1}, relaxed: {relaxed_1}, ranking_mode: {ranking_mode_1}"
@@ -319,19 +365,26 @@ if __name__ == "__main__":
             & (experiments_df["ranking_mode"] == ranking_mode_2)
         ][metric].to_numpy()
 
+        print(probe1[:3], probe2[:3])
+        print(len(probe1), len(probe2))
         print(stats.ttest_ind(probe1, probe2))
+        p_value = stats.ttest_ind(probe1, probe2).pvalue
+        if p_value <= 0.05:
+            print("H0 REJECTION")
 
     else:
-        experiments_df = read_training_metrics(experiment_names)
+        # experiments_df = read_training_metrics(experiment_names)
         experiments_df = pd.read_csv("training_history.csv", index_col=0)
         experiments_df["ranking_mode"] = experiments_df["ranking_mode"].astype(str)
         experiments_df["ranking_mode"] = experiments_df["ranking_mode"].replace(
             {"nan": "None"}
         )
-        methods_results_df = get_plots_data(experiments_df)
+        methods_results_df = get_plots_data(experiments_df, comparison_type="methods")
 
         print(methods_results_df)
-        plot_training_progress(methods_results_df, dataset, metric)
+        plot_training_progress(
+            methods_results_df, dataset, metric, comparison_type="methods"
+        )
 
         # gammas_results_df = get_gammas_df(experiments_df)
         # print(gammas_results_df)
