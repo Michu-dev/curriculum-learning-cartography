@@ -1,0 +1,5 @@
+outs:
+- md5: e70c499bd30bc487549e887889a3e5c4
+  size: 3037688
+  hash: md5
+  path: airline_passenger_satisfaction_test.csv

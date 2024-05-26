@@ -76,7 +76,7 @@ target/
 .ipynb_checkpoints/
 
 # exclude data from source control by default
-/data/
+# /data/
 
 # Mac OS-specific storage files
 .DS_Store
@@ -87,3 +87,21 @@ target/
 
 # Mypy cache
 .mypy_cache/
+
+# MLFlow runs
+mlruns/
+mlartifacts/
+
+# Training dynamics
+stellar_training_dynamics/
+airline_training_dynamics/
+card_fraud_training_dynamics/
+spotify_tracks_genre_training_dynamics/
+fashion_mnist_training_dynamics/
+
+# Data
+data/processed/FashionMNIST/
+
+# Experiments results table
+results.xlsx
+training_history.csv
